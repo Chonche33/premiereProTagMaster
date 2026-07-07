@@ -54,17 +54,33 @@ async function addTagMasterMetadata() {
     }
     log(`Active sequence: ${sequence.name}`);
 
-    // Get the selected clips in the sequence
-    const selectedClips = await sequence.getSelectedClips();
-    if (!selectedClips || selectedClips.length === 0) {
+    // Get the current selection from the sequence
+    const selection = await sequence.getSelection();
+    if (!selection || !selection.getTrackItems) {
+      log("No selection found in the sequence. Please select a clip.", "red");
+      return;
+    }
+    
+    // Get the selected track items (clips)
+    const selectedTrackItems = await selection.getTrackItems();
+    if (!selectedTrackItems || selectedTrackItems.length === 0) {
       log("No clips selected in the sequence. Please select a clip.", "red");
       return;
     }
-    log(`Found ${selectedClips.length} selected clip(s)`);
+    log(`Found ${selectedTrackItems.length} selected clip(s)`);
 
-    // Process the first selected clip (as per user request)
-    const clip = selectedClips[0];
-    log(`Processing clip: ${clip.name || 'Unnamed clip'}`);
+    // Process the first selected track item (as per user request)
+    const trackItem = selectedTrackItems[0];
+    log(`Processing clip: ${trackItem.name || 'Unnamed clip'}`);
+
+    // Get the project item from the track item
+    const projectItem = await trackItem.getProjectItem();
+    if (!projectItem) {
+      log("Could not get project item for the selected clip", "red");
+      return;
+    }
+    
+    log(`Clip project item ID: ${projectItem.id}`);
 
     // Step 1: Get current project metadata columns
     log("\n--- Step 1: Checking metadata columns ---");
@@ -99,15 +115,6 @@ async function addTagMasterMetadata() {
 
     // Step 4: Set the 'tag-master' value for the selected clip
     log("\n--- Step 3: Setting 'tag-master' value for clip ---");
-    
-    // Get the clip's project item (needed to access metadata)
-    const projectItem = await clip.getProjectItem();
-    if (!projectItem) {
-      log("Could not get project item for the clip", "red");
-      return;
-    }
-    
-    log(`Clip project item ID: ${projectItem.id}`);
     
     // Get current metadata for the project item
     const currentMetadata = await projectItem.getMetadata();
