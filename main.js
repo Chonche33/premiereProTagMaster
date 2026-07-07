@@ -17,13 +17,11 @@ const ppro = require("premierepro");
 
 // Call the Premiere Pro API to populate Application Info area.
 async function populateProjectInfo() {
-  // Get the active project.
   const project = await ppro.Project.getActiveProject();
   if (!project) {
     log("There is no active project found", "red");
   } else {
     log(`Active project: ${project.name}`);
-    // Get the active sequence.
     const sequence = await project.getActiveSequence();
     if (!sequence) {
       log("There is no active sequence found", "red");
@@ -33,63 +31,60 @@ async function populateProjectInfo() {
   }
 }
 
-// Function to get selected clips and set keywords metadata
+// Function to set 'toto' in Dublin Core keywords for all selected clips
 async function addTagMasterMetadata() {
   try {
     console.log("=== TAG MASTER PLUGIN LOG ===");
     
     log("Getting selected clips...", "green");
     
-    // Get the active project
     const project = await ppro.Project.getActiveProject();
     if (!project) {
-      log("No active project found", "red");
-      console.log("Error: No active project found");
+      const errorMsg = "No active project found";
+      log(errorMsg, "red");
+      console.log(errorMsg);
       return;
     }
     log(`Active project: ${project.name}`);
     console.log(`Active project: ${project.name}`);
 
-    // Get the active sequence
     const sequence = await project.getActiveSequence();
     if (!sequence) {
-      log("No active sequence found", "red");
-      console.log("Error: No active sequence found");
+      const errorMsg = "No active sequence found";
+      log(errorMsg, "red");
+      console.log(errorMsg);
       return;
     }
     log(`Active sequence: ${sequence.name}`);
     console.log(`Active sequence: ${sequence.name}`);
 
-    // Get the current selection from the sequence
     const selection = await sequence.getSelection();
     if (!selection || !selection.getTrackItems) {
-      log("No selection found in the sequence. Please select a clip.", "red");
-      console.log("Error: No selection found in the sequence");
+      const errorMsg = "No selection found in the sequence";
+      log(errorMsg, "red");
+      console.log(errorMsg);
       return;
     }
     
-    // Get the selected track items (clips)
     const selectedTrackItems = await selection.getTrackItems();
     if (!selectedTrackItems || selectedTrackItems.length === 0) {
-      log("No clips selected in the sequence. Please select a clip.", "red");
-      console.log("Error: No clips selected in the sequence");
+      const errorMsg = "No clips selected in the sequence";
+      log(errorMsg, "red");
+      console.log(errorMsg);
       return;
     }
+    
     log(`\n--- LISTE DES CLIPS SÉLECTIONNÉS ---`, "green");
     console.log(`\n--- LISTE DES CLIPS SÉLECTIONNÉS (${selectedTrackItems.length}) ---`);
     
-    // Use a Map to filter by ID (only show each unique ID once)
+    // Filter by unique project item ID
     const uniqueClipsMap = new Map();
     
     for (const trackItem of selectedTrackItems) {
       const projectItem = await trackItem.getProjectItem();
-      
       if (!projectItem) continue;
       
-      // Get name
-      let clipName = projectItem.name || trackItem.name || "Unnamed clip";
-      
-      // Get ID using getId() method
+      const clipName = projectItem.name || trackItem.name || "Unnamed clip";
       let clipId;
       try {
         clipId = await projectItem.getId();
@@ -97,18 +92,11 @@ async function addTagMasterMetadata() {
         clipId = projectItem.id || "Unknown ID";
       }
       
-      // Only add if we haven't seen this ID before
       if (!uniqueClipsMap.has(clipId)) {
-        uniqueClipsMap.set(clipId, {
-          name: clipName,
-          id: clipId,
-          projectItem: projectItem,
-          trackItem: trackItem
-        });
+        uniqueClipsMap.set(clipId, { name: clipName, id: clipId, projectItem });
       }
     }
     
-    // Convert to array and display
     const uniqueClips = Array.from(uniqueClipsMap.values());
     
     for (let i = 0; i < uniqueClips.length; i++) {
@@ -118,44 +106,16 @@ async function addTagMasterMetadata() {
       console.log(logMsg);
     }
     
-    log(`\nTotal: ${uniqueClips.length} clip(s) unique(s) sélectionné(s)`);
-    console.log(`\nTotal: ${uniqueClips.length} clip(s) unique(s) sélectionné(s)`);
+    log(`\nTotal: ${uniqueClips.length} clip(s) unique(s)`);
+    console.log(`Total: ${uniqueClips.length} clip(s) unique(s)`);
     
-    // Process ALL unique clips to set "toto" in "keywords" metadata
+    // Set 'toto' in Dublin Core keywords for ALL selected clips
     if (uniqueClips.length > 0) {
-      log(`\n--- Setting 'keywords' to 'toto' for all ${uniqueClips.length} clips ---`);
-      console.log(`\n--- Setting 'keywords' to 'toto' for all ${uniqueClips.length} clips ---`);
+      log(`\n--- Setting Dublin Core keywords to 'toto' for all clips ---`, "green");
+      console.log(`\n--- Setting Dublin Core keywords to 'toto' for all clips ---`);
       
-      for (const clip of uniqueClips) {
-        if (clip.projectItem) {
-          try {
-            log(`\nProcessing: ${clip.name} (ID: ${clip.id})`);
-            console.log(`\nProcessing: ${clip.name} (ID: ${clip.id})`);
-            
-            // Get current XMP metadata (Dublin Core uses XMP)
-            let currentXmpMetadata = {};
-            try {
-              const xmpMetadataStr = await ppro.Metadata.getXMPMetadata(clip.projectItem);
-              console.log("Raw XMP metadata:", xmpMetadataStr);
-              
-              // XMP metadata is XML format, we need to parse it or work with it as string
-              if (xmpMetadataStr && typeof xmpMetadataStr === 'string') {
-                // Try to parse as XML to extract keywords
-                // For now, we'll work with the string directly
-                currentXmpMetadata = xmpMetadataStr;
-              }
-            } catch (xmpError) {
-              log(`Could not get XMP metadata: ${xmpError.message}`, "orange");
-              console.log(`Could not get XMP metadata: ${xmpError.message}`);
-              currentXmpMetadata = {};
-            }
-            
-            // For Dublin Core keywords, we need to use XMP metadata
-            // The keywords are typically in dc:subject or xmp:Keywords
-            // We'll try to set it using createSetXMPMetadataAction
-            
-            // Create XMP metadata with keywords
-            const xmpMetadata = `<?xpacket begin="" id="W5M0MpCehiHzreSjNc9d"?>
+      // XMP metadata with dc:subject = "toto"
+      const xmpKeywords = `<?xpacket begin="" id="W5M0MpCehiHzreSjNc9d"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
   <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
     <rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -168,80 +128,65 @@ async function addTagMasterMetadata() {
   </rdf:RDF>
 </x:xmpmeta>
 <?xpacket end="w"?>`;
-            
-            log("Setting XMP keywords to 'toto'...");
-            console.log("Setting XMP keywords to 'toto'...");
-            
-            // Create and execute the set XMP metadata action
-            const setXmpMetadataAction = await ppro.Metadata.createSetXMPMetadataAction(
+      
+      for (const clip of uniqueClips) {
+        if (!clip.projectItem) continue;
+        
+        log(`\nProcessing: ${clip.name} (ID: ${clip.id})`);
+        console.log(`\nProcessing: ${clip.name} (ID: ${clip.id})`);
+        
+        try {
+          // Try direct setXMPMetadata method first
+          if (clip.projectItem.setXMPMetadata) {
+            console.log("Using setXMPMetadata method...");
+            await clip.projectItem.setXMPMetadata(xmpKeywords);
+            log(`✓ Set keywords to 'toto' for ${clip.name}`, "green");
+            console.log(`✓ Set keywords to 'toto' for ${clip.name}`);
+          } else {
+            // Fallback: try createSetXMPMetadataAction
+            console.log("Using createSetXMPMetadataAction...");
+            const action = await ppro.Metadata.createSetXMPMetadataAction(
               clip.projectItem,
-              xmpMetadata
+              xmpKeywords
             );
             
-            if (!setXmpMetadataAction) {
-              log("Failed to create XMP metadata action", "red");
-              console.log("Error: Failed to create XMP metadata action");
-              continue;
-            }
-            
-            // Check if the action has an execute method or if it's auto-executed
-            if (typeof setXmpMetadataAction.execute === 'function') {
-              const success = await setXmpMetadataAction.execute();
-              if (success) {
-                log(`Successfully set keywords to 'toto' for ${clip.name}`, "green");
-                console.log(`Successfully set keywords to 'toto' for ${clip.name}`);
-              } else {
-                log(`Failed to set keywords for ${clip.name}`, "red");
-                console.log(`Failed to set keywords for ${clip.name}`);
-              }
-            } else if (typeof setXmpMetadataAction === 'boolean' && setXmpMetadataAction) {
-              // Some actions return true directly
-              log(`Successfully set keywords to 'toto' for ${clip.name}`, "green");
-              console.log(`Successfully set keywords to 'toto' for ${clip.name}`);
+            if (action && typeof action.execute === 'function') {
+              await action.execute();
+              log(`✓ Set keywords to 'toto' for ${clip.name}`, "green");
+              console.log(`✓ Set keywords to 'toto' for ${clip.name}`);
+            } else if (action === true) {
+              log(`✓ Set keywords to 'toto' for ${clip.name}`, "green");
+              console.log(`✓ Set keywords to 'toto' for ${clip.name}`);
             } else {
-              // Try direct approach
-              try {
-                if (clip.projectItem.setXMPMetadata) {
-                  await clip.projectItem.setXMPMetadata(xmpMetadata);
-                  log(`Successfully set keywords to 'toto' for ${clip.name} (direct method)`, "green");
-                  console.log(`Successfully set keywords to 'toto' for ${clip.name} (direct method)`);
-                } else {
-                  log(`No execute method and no direct method for ${clip.name}`, "red");
-                  console.log(`No execute method and no direct method for ${clip.name}`);
-                }
-              } catch (directError) {
-                log(`Direct method failed for ${clip.name}: ${directError.message}`, "red");
-                console.log(`Direct method failed for ${clip.name}: ${directError.message}`);
-              }
-            }
-            
-            // Verify by getting XMP metadata again
-            try {
-              const updatedXmpMetadata = await ppro.Metadata.getXMPMetadata(clip.projectItem);
-              console.log(`Updated XMP for ${clip.name}:`, updatedXmpMetadata);
-              log(`Updated XMP metadata for ${clip.name}`, "green");
-            } catch (verifyError) {
-              log(`Could not verify XMP for ${clip.name}: ${verifyError.message}`, "orange");
-              console.log(`Could not verify XMP for ${clip.name}: ${verifyError.message}`);
-            }
-            
-          } catch (error) {
-            log(`Error processing ${clip.name}: ${error.message}`, "red");
-            console.log(`Error processing ${clip.name}: ${error.message}`);
-            if (error.stack) {
-              console.log(`Stack: ${error.stack}`);
+              log(`✗ Failed to set keywords for ${clip.name}`, "red");
+              console.log(`✗ Failed to set keywords for ${clip.name}`);
             }
           }
+          
+          // Verify
+          try {
+            const updatedXmp = await ppro.Metadata.getXMPMetadata(clip.projectItem);
+            console.log(`XMP for ${clip.name}:`, updatedXmp.substring(0, 200) + "...");
+            log(`Verified XMP for ${clip.name}`, "green");
+          } catch (verifyError) {
+            console.log(`Could not verify XMP for ${clip.name}: ${verifyError.message}`);
+          }
+          
+        } catch (error) {
+          log(`✗ Error with ${clip.name}: ${error.message}`, "red");
+          console.log(`✗ Error with ${clip.name}: ${error.message}`);
+          if (error.stack) console.log(`Stack: ${error.stack}`);
         }
       }
     }
     
     console.log("\n=== END TAG MASTER PLUGIN LOG ===\n");
-    log("\n✅ Process completed!");
+    log("\n✅ Done!");
     
   } catch (error) {
-    log(`Error: ${error.message}`, "red");
-    console.log(`Error: ${error.message}`);
+    const errorMsg = `Error: ${error.message}`;
+    log(errorMsg, "red");
+    console.log(errorMsg);
     if (error.stack) {
       log(`Stack: ${error.stack}`, "red");
       console.log(`Stack: ${error.stack}`);
@@ -250,35 +195,23 @@ async function addTagMasterMetadata() {
   }
 }
 
-// Event listener for the Populate Application Info button.
-document
-  .querySelector("#btnPopulate")
-  .addEventListener("click", populateProjectInfo);
-
-// Event listener for the Add Tag Master Metadata button.
-document
-  .querySelector("#btnAddMetadata")
-  .addEventListener("click", addTagMasterMetadata);
-
-// Event listener for the Clear Application Info button.
+// Event listeners
+document.querySelector("#btnPopulate").addEventListener("click", populateProjectInfo);
+document.querySelector("#btnAddMetadata").addEventListener("click", addTagMasterMetadata);
 document.querySelector("#clear-btn").addEventListener("click", () => {
   document.getElementById("plugin-body").innerHTML = "";
 });
 
-// Log function to display messages in the plugin body.
 function log(msg, color) {
   const pluginBody = document.getElementById("plugin-body");
-  pluginBody.innerHTML += color
-    ? `<span style='color:${color}'>${msg}</span><br />`
-    : `${msg}<br />`;
-  // Auto-scroll to bottom
+  pluginBody.innerHTML += color ? `<span style='color:${color}'>${msg}</span><br />` : `${msg}<br />`;
   pluginBody.scrollTop = pluginBody.scrollHeight;
 }
 
 function updateTheme(theme) {
-  panelBody = document.getElementById("plugin-body");
-  panelHeading = document.getElementById("plugin-heading"); 
-  if(theme.includes("dark")) {
+  const panelBody = document.getElementById("plugin-body");
+  const panelHeading = document.getElementById("plugin-heading");
+  if (theme.includes("dark")) {
     panelBody.style.color = "#fff";
     panelHeading.style.color = "#fff";
   } else {
@@ -287,9 +220,6 @@ function updateTheme(theme) {
   }
 }
 
-document.theme.onUpdated.addListener((theme) => {
-	updateTheme(theme);
-})
-
+document.theme.onUpdated.addListener((theme) => { updateTheme(theme); });
 const currentTheme = document.theme.getCurrent();
 updateTheme(currentTheme);
