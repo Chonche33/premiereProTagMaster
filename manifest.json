@@ -1,7 +1,7 @@
 {
   "id": "Test-neye0w",
-  "name": "access to metadata",
-  "shortname": "3pstarterplugin",
+  "name": "Tag Master",
+  "shortname": "tagMaster",
   "version": "1.0.0",
   "main": "index.html",
   "host": {
@@ -11,11 +11,12 @@
   "manifestVersion": 5,
   "requiredPermissions": {
     "localFileSystem": "request",
-    "clipboard": "readAndWrite"
+    "clipboard": "readAndWrite",
+    "metadata": "readAndWrite"
   },
   "entrypoints": [
     {
-      "id": "starterpanel",
+      "id": "tagMasterPanel",
       "type": "panel",
       "minimumSize": {
         "width": 430,
@@ -34,7 +35,7 @@
         "height": 300
       },
       "label": {
-        "default": "PremierePro Starter Panel Project"
+        "default": "Tag Master"
       },
       "icons": [
         {

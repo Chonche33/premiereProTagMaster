@@ -1,7 +1,7 @@
 {
-  "name": "uxp-template-ps-starter",
+  "name": "premiere-pro-tag-master",
   "version": "1.0.0",
-  "description": "Starter template for creating Adobe UXP based-Premiere plugin.",
+  "description": "Adobe UXP plugin for Premiere Pro to add custom Tag Master metadata to selected clips.",
   "author": "Adobe Inc",
   "license": "Apache-2.0"
 }
