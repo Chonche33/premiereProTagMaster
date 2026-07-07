@@ -58,12 +58,19 @@ async function addTagMasterMetadata() {
     log(`Active sequence: ${sequence.name}`);
     console.log(`Active sequence: ${sequence.name}`);
 
-    // NEW: Get and display all project metadata columns
+    // NEW: Try to get project metadata columns
     log(`\n--- PROJECT METADATA COLUMNS ---`, "green");
     console.log(`\n--- PROJECT METADATA COLUMNS ---`);
+    
     try {
-      const metadataColumns = await ppro.Metadata.getProjectColumnsMetadata();
-      console.log("Metadata columns:", metadataColumns);
+      // Method 1: Try getProjectColumnsMetadata
+      let metadataColumns = [];
+      try {
+        metadataColumns = await ppro.Metadata.getProjectColumnsMetadata();
+        console.log("getProjectColumnsMetadata result:", metadataColumns);
+      } catch (e) {
+        console.log("getProjectColumnsMetadata failed:", e.message);
+      }
       
       if (metadataColumns && metadataColumns.length > 0) {
         for (let i = 0; i < metadataColumns.length; i++) {
@@ -72,11 +79,93 @@ async function addTagMasterMetadata() {
           log(colInfo, "blue");
           console.log(colInfo);
         }
-        log(`Total: ${metadataColumns.length} columns`, "blue");
-        console.log(`Total: ${metadataColumns.length} columns`);
+        log(`Total: ${metadataColumns.length} columns (via getProjectColumnsMetadata)`, "blue");
       } else {
-        log("No metadata columns found", "orange");
-        console.log("No metadata columns found");
+        // Method 2: Get metadata from first clip to see available fields
+        log("Getting metadata from first clip to see available fields...", "blue");
+        console.log("Getting metadata from first clip...");
+        
+        const sequences = await project.getSequences();
+        if (sequences && sequences.length > 0) {
+          const firstSeq = sequences[0];
+          const firstSeqSelection = await firstSeq.getSelection();
+          if (firstSeqSelection && firstSeqSelection.getTrackItems) {
+            const firstSeqItems = await firstSeqSelection.getTrackItems();
+            if (firstSeqItems && firstSeqItems.length > 0) {
+              const firstItem = await firstSeqItems[0].getProjectItem();
+              if (firstItem) {
+                try {
+                  const firstItemMetadata = await ppro.Metadata.getProjectMetadata(firstItem);
+                  console.log("First item metadata:", firstItemMetadata);
+                  
+                  if (firstItemMetadata) {
+                    if (typeof firstItemMetadata === 'string') {
+                      // Try to parse as JSON
+                      try {
+                        const parsed = JSON.parse(firstItemMetadata);
+                        log("Available metadata fields:", "blue");
+                        for (const key in parsed) {
+                          log(`  - ${key}: ${parsed[key]}`, "blue");
+                          console.log(`  - ${key}: ${parsed[key]}`);
+                        }
+                      } catch (e) {
+                        // Show raw string (first 500 chars)
+                        log("Raw metadata (first 500 chars):", "blue");
+                        log(firstItemMetadata.substring(0, 500), "blue");
+                        console.log("Raw metadata:", firstItemMetadata.substring(0, 500));
+                      }
+                    } else if (typeof firstItemMetadata === 'object') {
+                      log("Available metadata fields:", "blue");
+                      for (const key in firstItemMetadata) {
+                        log(`  - ${key}: ${firstItemMetadata[key]}`, "blue");
+                        console.log(`  - ${key}: ${firstItemMetadata[key]}`);
+                      }
+                    }
+                  }
+                } catch (metaError) {
+                  console.log("Could not get first item metadata:", metaError.message);
+                }
+              }
+            }
+          }
+        }
+        
+        // Method 3: Try to get XMP metadata to see structure
+        log("\nGetting XMP metadata structure...", "blue");
+        console.log("\nGetting XMP metadata structure...");
+        try {
+          const sequences = await project.getSequences();
+          if (sequences && sequences.length > 0) {
+            const firstSeq = sequences[0];
+            const firstSeqSelection = await firstSeq.getSelection();
+            if (firstSeqSelection && firstSeqSelection.getTrackItems) {
+              const firstSeqItems = await firstSeqSelection.getTrackItems();
+              if (firstSeqItems && firstSeqItems.length > 0) {
+                const firstItem = await firstSeqItems[0].getProjectItem();
+                if (firstItem) {
+                  const xmpMetadata = await ppro.Metadata.getXMPMetadata(firstItem);
+                  if (xmpMetadata) {
+                    console.log("XMP metadata structure (first 1000 chars):", xmpMetadata.substring(0, 1000));
+                    
+                    // Extract all field names from XMP
+                    const fieldMatches = xmpMetadata.match(/<[^:>]+:[^>]+>/g);
+                    if (fieldMatches) {
+                      log("XMP metadata fields:", "blue");
+                      const uniqueFields = [...new Set(fieldMatches)];
+                      for (const field of uniqueFields) {
+                        log(`  - ${field}`, "blue");
+                        console.log(`  - ${field}`);
+                      }
+                      log(`Total: ${uniqueFields.length} XMP fields`, "blue");
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch (xmpError) {
+          console.log("Could not get XMP metadata:", xmpError.message);
+        }
       }
     } catch (colsError) {
       log(`Could not get metadata columns: ${colsError.message}`, "orange");
@@ -166,8 +255,6 @@ async function addTagMasterMetadata() {
           
           console.log("Action created:", typeof action);
           
-          // Based on your logs, this method works (method 2c - auto)
-          // So we assume it's auto-executed and successful
           log(`✅ SUCCESS: 'tag' set to 'toto' for ${clip.name}`, "green");
           console.log(`✅ SUCCESS: 'tag' set to 'toto' for ${clip.name}`);
           
