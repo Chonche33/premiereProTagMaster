@@ -31,7 +31,7 @@ async function populateProjectInfo() {
   }
 }
 
-// Function to set 'toto' in Dublin Core keywords for all selected clips
+// Function to set 'toto' in custom metadata column for all selected clips
 async function addTagMasterMetadata() {
   try {
     console.log("=== TAG MASTER PLUGIN LOG ===");
@@ -109,10 +109,22 @@ async function addTagMasterMetadata() {
     log(`\nTotal: ${uniqueClips.length} clip(s) unique(s)`);
     console.log(`Total: ${uniqueClips.length} clip(s) unique(s)`);
     
-    // Set 'toto' in keywords for ALL selected clips
+    // Set 'toto' in custom metadata column for ALL selected clips
     if (uniqueClips.length > 0) {
-      log(`\n--- Setting keywords to 'toto' for all clips ---`, "green");
-      console.log(`\n--- Setting keywords to 'toto' for all clips ---`);
+      log(`\n--- Setting 'tag-master' to 'toto' for all clips ---`, "green");
+      console.log(`\n--- Setting 'tag-master' to 'toto' for all clips ---`);
+      
+      // First, ensure the 'tag-master' column exists
+      try {
+        console.log("Adding 'tag-master' to project metadata schema...");
+        await ppro.Metadata.addPropertyToProjectMetadataSchema("tag-master", "Tag Master", 1);
+        log("✓ Added 'tag-master' column to metadata schema", "green");
+        console.log("✓ Added 'tag-master' column to metadata schema");
+      } catch (schemaError) {
+        console.log("Schema error:", schemaError.message);
+        log("'tag-master' column may already exist", "blue");
+        console.log("'tag-master' column may already exist");
+      }
       
       for (const clip of uniqueClips) {
         if (!clip.projectItem) continue;
@@ -124,32 +136,14 @@ async function addTagMasterMetadata() {
           // Method 1: Try using setMetadata directly on projectItem
           console.log("Trying setMetadata method...");
           if (clip.projectItem.setMetadata) {
-            // Dublin Core keywords are typically accessed via "keywords" or "dc:subject"
-            // Try both formats
             try {
-              // Format 1: Simple object with keywords
-              await clip.projectItem.setMetadata({ "keywords": "toto" });
-              log(`✓ Set keywords to 'toto' for ${clip.name} (method 1a)`, "green");
-              console.log(`✓ Set keywords to 'toto' for ${clip.name} (method 1a)`);
+              // Set the custom metadata field
+              await clip.projectItem.setMetadata({ "tag-master": "toto" });
+              log(`✓ Set 'tag-master' to 'toto' for ${clip.name} (method 1)`, "green");
+              console.log(`✓ Set 'tag-master' to 'toto' for ${clip.name} (method 1)`);
             } catch (e1) {
-              console.log("Method 1a failed, trying 1b...");
-              // Format 2: Array format for keywords
-              try {
-                await clip.projectItem.setMetadata({ "keywords": ["toto"] });
-                log(`✓ Set keywords to 'toto' for ${clip.name} (method 1b)`, "green");
-                console.log(`✓ Set keywords to 'toto' for ${clip.name} (method 1b)`);
-              } catch (e2) {
-                console.log("Method 1b failed, trying 1c...");
-                // Format 3: Dublin Core format
-                try {
-                  await clip.projectItem.setMetadata({ "dc:subject": ["toto"] });
-                  log(`✓ Set keywords to 'toto' for ${clip.name} (method 1c)`, "green");
-                  console.log(`✓ Set keywords to 'toto' for ${clip.name} (method 1c)`);
-                } catch (e3) {
-                  console.log("Method 1c failed:", e3.message);
-                  throw e3; // Re-throw to try next method
-                }
-              }
+              console.log("Method 1 failed:", e1.message);
+              throw e1;
             }
           } else {
             throw new Error("setMetadata method not available");
@@ -162,64 +156,58 @@ async function addTagMasterMetadata() {
           try {
             console.log("Trying createSetProjectMetadataAction...");
             
-            // For Dublin Core keywords, use the standard schema
-            const metadata = { "keywords": "toto" };
+            const metadata = { "tag-master": "toto" };
             const action = await ppro.Metadata.createSetProjectMetadataAction(
               clip.projectItem,
               JSON.stringify(metadata),
-              ["keywords"]
+              ["tag-master"]
             );
             
             console.log("Action created:", typeof action, action);
             
-            // Check what the action returns
             if (action && typeof action.execute === 'function') {
-              // If it has execute method, call it
               const success = await action.execute();
               console.log("Action executed:", success);
               if (success) {
-                log(`✓ Set keywords to 'toto' for ${clip.name} (method 2a)`, "green");
-                console.log(`✓ Set keywords to 'toto' for ${clip.name} (method 2a)`);
+                log(`✓ Set 'tag-master' to 'toto' for ${clip.name} (method 2a)`, "green");
+                console.log(`✓ Set 'tag-master' to 'toto' for ${clip.name} (method 2a)`);
               } else {
                 log(`✗ Action failed for ${clip.name}`, "red");
                 console.log(`✗ Action failed for ${clip.name}`);
               }
             } else if (action === true) {
-              // Some actions return true directly
-              log(`✓ Set keywords to 'toto' for ${clip.name} (method 2b)`, "green");
-              console.log(`✓ Set keywords to 'toto' for ${clip.name} (method 2b)`);
+              log(`✓ Set 'tag-master' to 'toto' for ${clip.name} (method 2b)`, "green");
+              console.log(`✓ Set 'tag-master' to 'toto' for ${clip.name} (method 2b)`);
             } else {
-              // The action might be auto-executed
-              log(`✓ Set keywords to 'toto' for ${clip.name} (method 2c - auto)`, "green");
-              console.log(`✓ Set keywords to 'toto' for ${clip.name} (method 2c - auto)`);
+              log(`✓ Set 'tag-master' to 'toto' for ${clip.name} (method 2c - auto)`, "green");
+              console.log(`✓ Set 'tag-master' to 'toto' for ${clip.name} (method 2c - auto)`);
             }
           } catch (method2Error) {
             console.log(`Method 2 failed for ${clip.name}: ${method2Error.message}`);
             
-            // Method 3: Try using the project's executeTransaction
+            // Method 3: Try using executeTransaction
             try {
               console.log("Trying executeTransaction...");
               const success = await project.executeTransaction((compoundAction) => {
-                // This is the recommended way for metadata changes
                 const setMetadataAction = ppro.Metadata.createSetProjectMetadataAction(
                   clip.projectItem,
-                  JSON.stringify({ "keywords": "toto" }),
-                  ["keywords"]
+                  JSON.stringify({ "tag-master": "toto" }),
+                  ["tag-master"]
                 );
                 compoundAction.addAction(setMetadataAction);
               });
               
               if (success) {
-                log(`✓ Set keywords to 'toto' for ${clip.name} (method 3)`, "green");
-                console.log(`✓ Set keywords to 'toto' for ${clip.name} (method 3)`);
+                log(`✓ Set 'tag-master' to 'toto' for ${clip.name} (method 3)`, "green");
+                console.log(`✓ Set 'tag-master' to 'toto' for ${clip.name} (method 3)`);
               } else {
                 log(`✗ Transaction failed for ${clip.name}`, "red");
                 console.log(`✗ Transaction failed for ${clip.name}`);
               }
             } catch (method3Error) {
               console.log(`Method 3 failed for ${clip.name}: ${method3Error.message}`);
-              log(`✗ Failed to set keywords for ${clip.name}: ${method3Error.message}`, "red");
-              console.log(`✗ Failed to set keywords for ${clip.name}: ${method3Error.message}`);
+              log(`✗ Failed to set 'tag-master' for ${clip.name}: ${method3Error.message}`, "red");
+              console.log(`✗ Failed to set 'tag-master' for ${clip.name}: ${method3Error.message}`);
             }
           }
         }
@@ -236,7 +224,7 @@ async function addTagMasterMetadata() {
     }
     
     console.log("\n=== END TAG MASTER PLUGIN LOG ===\n");
-    log("\n✅ Done!");
+    log("\n✅ Done! Check 'tag-master' column in Project Metadata panel!");
     
   } catch (error) {
     const errorMsg = `Error: ${error.message}`;
