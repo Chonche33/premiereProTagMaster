@@ -67,24 +67,40 @@ async function addTagMasterMetadata() {
       log("No clips selected in the sequence. Please select a clip.", "red");
       return;
     }
-    log(`Found ${selectedTrackItems.length} selected clip(s)`);
+    log(`Found ${selectedTrackItems.length} selected track item(s)`);
 
-    // Process the first selected track item (as per user request)
-    const trackItem = selectedTrackItems[0];
-    log(`Processing clip: ${trackItem.name || 'Unnamed clip'}`);
-
-    // Get the project item from the track item
-    const projectItem = await trackItem.getProjectItem();
-    if (!projectItem) {
-      log("Could not get project item for the selected clip", "red");
+    // Filter to get unique project items (avoid counting linked video+audio as separate)
+    const uniqueProjectItems = [];
+    const seenProjectItemIds = new Set();
+    
+    for (const trackItem of selectedTrackItems) {
+      const projectItem = await trackItem.getProjectItem();
+      if (projectItem && !seenProjectItemIds.has(projectItem.id)) {
+        seenProjectItemIds.add(projectItem.id);
+        uniqueProjectItems.push({
+          trackItem: trackItem,
+          projectItem: projectItem,
+          name: projectItem.name || trackItem.name || 'Unnamed clip',
+          id: projectItem.id
+        });
+      }
+    }
+    
+    if (uniqueProjectItems.length === 0) {
+      log("No unique project items found from selection", "red");
       return;
     }
     
-    log(`Clip project item ID: ${projectItem.id}`);
+    log(`Processing ${uniqueProjectItems.length} unique clip(s)`);
+    
+    // Process the first unique clip (as per user request)
+    const { trackItem, projectItem, name, id } = uniqueProjectItems[0];
+    log(`Processing clip: ${name}`);
+    log(`Clip ID: ${id}`);
 
-    // Step 1: Get current project metadata columns
+    // Step 1: Get current project metadata columns using Metadata class static method
     log("\n--- Step 1: Checking metadata columns ---");
-    const metadataColumns = await project.getProjectColumnsMetadata();
+    const metadataColumns = await ppro.Metadata.getProjectColumnsMetadata();
     log("Current metadata columns:");
     log(JSON.stringify(metadataColumns, null, 2), "blue");
 
@@ -101,14 +117,31 @@ async function addTagMasterMetadata() {
         isCustom: true
       }];
       
-      // Update the project metadata columns
-      await project.setProjectColumnsMetadata(newMetadataColumns);
-      log("Successfully added 'tag-master' metadata column", "green");
+      // Note: According to the documentation, setProjectColumnsMetadata might not be directly available
+      // We'll try to use it, but if it fails, we'll use an alternative approach
+      try {
+        // Try the direct approach first
+        if (ppro.Project.setProjectColumnsMetadata) {
+          await ppro.Project.setProjectColumnsMetadata(newMetadataColumns);
+        } else if (ppro.Metadata.setProjectColumnsMetadata) {
+          await ppro.Metadata.setProjectColumnsMetadata(newMetadataColumns);
+        } else {
+          log("setProjectColumnsMetadata not available, using metadata schema approach");
+          // Alternative: Add property to project metadata schema
+          await ppro.Metadata.addPropertyToProjectMetadataSchema("tag-master", "Tag Master", 1); // 1 = text type
+        }
+        log("Successfully added 'tag-master' metadata column", "green");
+      } catch (schemaError) {
+        log(`Could not add column via setProjectColumnsMetadata: ${schemaError.message}`, "orange");
+        // Try the schema approach
+        try {
+          await ppro.Metadata.addPropertyToProjectMetadataSchema("tag-master", "Tag Master", 1);
+          log("Successfully added 'tag-master' via metadata schema", "green");
+        } catch (error) {
+          log(`Could not add metadata schema: ${error.message}`, "red");
+        }
+      }
       
-      // Refresh the metadata columns to confirm
-      const updatedColumns = await project.getProjectColumnsMetadata();
-      log("Updated metadata columns:");
-      log(JSON.stringify(updatedColumns, null, 2), "blue");
     } else {
       log("'tag-master' column already exists", "blue");
     }
@@ -117,7 +150,7 @@ async function addTagMasterMetadata() {
     log("\n--- Step 3: Setting 'tag-master' value for clip ---");
     
     // Get current metadata for the project item
-    const currentMetadata = await projectItem.getMetadata();
+    const currentMetadata = await ppro.Metadata.getProjectMetadata(projectItem);
     log("Current clip metadata:");
     log(JSON.stringify(currentMetadata, null, 2), "blue");
     
@@ -127,12 +160,23 @@ async function addTagMasterMetadata() {
       "tag-master": "toto"
     };
     
-    // Update the metadata
-    await projectItem.setMetadata(newMetadata);
-    log("Successfully set 'tag-master' to 'toto' for the clip", "green");
+    // Create and execute the set metadata action
+    const setMetadataAction = await ppro.Metadata.createSetProjectMetadataAction(
+      projectItem,
+      JSON.stringify(newMetadata),
+      ["tag-master"]
+    );
+    
+    // Execute the action
+    const success = await setMetadataAction.execute();
+    if (success) {
+      log("Successfully set 'tag-master' to 'toto' for the clip", "green");
+    } else {
+      log("Failed to set metadata", "red");
+    }
     
     // Verify the metadata was set
-    const updatedMetadata = await projectItem.getMetadata();
+    const updatedMetadata = await ppro.Metadata.getProjectMetadata(projectItem);
     log("\nUpdated clip metadata:");
     log(JSON.stringify(updatedMetadata, null, 2), "green");
     
