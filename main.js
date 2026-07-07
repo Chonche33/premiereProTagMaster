@@ -58,6 +58,31 @@ async function addTagMasterMetadata() {
     log(`Active sequence: ${sequence.name}`);
     console.log(`Active sequence: ${sequence.name}`);
 
+    // NEW: Get and display all project metadata columns
+    log(`\n--- PROJECT METADATA COLUMNS ---`, "green");
+    console.log(`\n--- PROJECT METADATA COLUMNS ---`);
+    try {
+      const metadataColumns = await ppro.Metadata.getProjectColumnsMetadata();
+      console.log("Metadata columns:", metadataColumns);
+      
+      if (metadataColumns && metadataColumns.length > 0) {
+        for (let i = 0; i < metadataColumns.length; i++) {
+          const col = metadataColumns[i];
+          const colInfo = `  ${i + 1}. ${col.name} (${col.displayName || 'N/A'}) - Type: ${col.type || 'unknown'}`;
+          log(colInfo, "blue");
+          console.log(colInfo);
+        }
+        log(`Total: ${metadataColumns.length} columns`, "blue");
+        console.log(`Total: ${metadataColumns.length} columns`);
+      } else {
+        log("No metadata columns found", "orange");
+        console.log("No metadata columns found");
+      }
+    } catch (colsError) {
+      log(`Could not get metadata columns: ${colsError.message}`, "orange");
+      console.log(`Could not get metadata columns: ${colsError.message}`);
+    }
+
     const selection = await sequence.getSelection();
     if (!selection || !selection.getTrackItems) {
       const errorMsg = "No selection found in the sequence";
