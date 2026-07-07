@@ -275,5 +275,6 @@ function updateTheme(theme) {
   }
 }
 
-document.theme.onUpdated.addListener((theme) => { updateTheme(theme); });nconst currentTheme = document.theme.getCurrent();
+document.theme.onUpdated.addListener((theme) => { updateTheme(theme); });
+const currentTheme = document.theme.getCurrent();
 updateTheme(currentTheme);
