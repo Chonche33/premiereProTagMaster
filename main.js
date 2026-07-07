@@ -33,7 +33,7 @@ async function populateProjectInfo() {
   }
 }
 
-// Function to get selected clips and display their names and IDs
+// Function to get selected clips and set tag metadata
 async function addTagMasterMetadata() {
   try {
     log("Getting selected clips...", "green");
@@ -109,91 +109,114 @@ async function addTagMasterMetadata() {
     
     log(`\nTotal: ${uniqueClips.length} clip(s) unique(s) sélectionné(s)`);
     
-    // If we have clips, try to add "george" metadata column and set value
+    // If we have clips, set "toto" in the "tag" metadata column
     if (uniqueClips.length > 0) {
       const firstClip = uniqueClips[0];
-      log(`\n--- Processing first clip: ${firstClip.name} ---`);
+      log(`\n--- Setting 'tag' to 'toto' for: ${firstClip.name} ---`);
       
       if (firstClip.projectItem) {
         try {
-          // Step 1: Add "george" to project metadata schema
-          log("Adding 'george' to project metadata schema...");
+          // Step 1: Ensure "tag" column exists in metadata schema
+          log("Checking if 'tag' column exists...");
           
-          // First check current columns
           let metadataColumns = [];
           try {
             metadataColumns = await ppro.Metadata.getProjectColumnsMetadata();
-            log("Current metadata columns:", "blue");
-            log(JSON.stringify(metadataColumns.map(c => c.name), null, 2), "blue");
           } catch (colsError) {
             log(`Could not get columns: ${colsError.message}`, "orange");
           }
           
-          // Check if "george" already exists
-          const georgeExists = metadataColumns.some(col => col.name === "george");
+          const tagExists = metadataColumns.some(col => col.name === "tag");
           
-          if (!georgeExists) {
-            // Add "george" property to schema (1 = text type)
-            await ppro.Metadata.addPropertyToProjectMetadataSchema("george", "George", 1);
-            log("Successfully added 'george' to metadata schema", "green");
+          if (!tagExists) {
+            // Add "tag" property to schema
+            // Type 1 = string/text (according to Adobe docs)
+            log("Adding 'tag' to metadata schema...");
+            await ppro.Metadata.addPropertyToProjectMetadataSchema("tag", "Tag", 1);
+            log("Successfully added 'tag' to metadata schema", "green");
           } else {
-            log("'george' already exists in metadata schema", "blue");
+            log("'tag' already exists in metadata schema", "blue");
           }
           
-          // Step 2: Set "george" value for the clip
-          log("Setting 'george' value for the clip...");
-          
-          // Get current metadata safely
+          // Step 2: Get current metadata for the clip
+          log("Getting current metadata...");
           let currentMetadata = {};
           try {
             const metadataStr = await ppro.Metadata.getProjectMetadata(firstClip.projectItem);
-            if (metadataStr) {
+            if (metadataStr && typeof metadataStr === 'string') {
               currentMetadata = JSON.parse(metadataStr);
+            } else if (metadataStr && typeof metadataStr === 'object') {
+              currentMetadata = metadataStr;
             }
           } catch (metadataError) {
             log(`Could not get current metadata: ${metadataError.message}`, "orange");
-            currentMetadata = {};
           }
           
-          log("Current metadata:", "blue");
+          log("Current metadata:");
           log(JSON.stringify(currentMetadata, null, 2), "blue");
           
-          // Set george value
+          // Step 3: Set "tag" to "toto"
           const newMetadata = {
             ...currentMetadata,
-            "george": "test"
+            "tag": "toto"
           };
           
+          log("Setting 'tag' to 'toto'...");
+          
           // Create and execute the set metadata action
-          log("Creating metadata action...");
           const setMetadataAction = await ppro.Metadata.createSetProjectMetadataAction(
             firstClip.projectItem,
             JSON.stringify(newMetadata),
-            ["george"]
+            ["tag"]
           );
           
           if (!setMetadataAction) {
             log("Failed to create metadata action", "red");
-            return;
+          } else {
+            const success = await setMetadataAction.execute();
+            
+            if (success) {
+              log("Successfully set 'tag' to 'toto' for the clip", "green");
+              
+              // Verify by getting metadata again
+              try {
+                const updatedMetadataStr = await ppro.Metadata.getProjectMetadata(firstClip.projectItem);
+                let updatedMetadata = {};
+                if (updatedMetadataStr && typeof updatedMetadataStr === 'string') {
+                  updatedMetadata = JSON.parse(updatedMetadataStr);
+                } else if (updatedMetadataStr && typeof updatedMetadataStr === 'object') {
+                  updatedMetadata = updatedMetadataStr;
+                }
+                log("Updated metadata:");
+                log(JSON.stringify(updatedMetadata, null, 2), "green");
+              } catch (verifyError) {
+                log(`Could not verify metadata: ${verifyError.message}`, "orange");
+              }
+            } else {
+              log("Failed to execute metadata action", "red");
+            }
           }
           
-          log("Executing metadata action...");
-          const success = await setMetadataAction.execute();
-          
-          if (success) {
-            log("Successfully set 'george' to 'test' for the clip", "green");
-            
-            // Verify by getting metadata again
-            try {
-              const updatedMetadataStr = await ppro.Metadata.getProjectMetadata(firstClip.projectItem);
-              const updatedMetadata = updatedMetadataStr ? JSON.parse(updatedMetadataStr) : {};
-              log("Updated metadata:", "green");
-              log(JSON.stringify(updatedMetadata, null, 2), "green");
-            } catch (verifyError) {
-              log(`Could not verify metadata: ${verifyError.message}`, "orange");
+          // Step 4: Try to enable the "tag" column in the project panel
+          // This might require refreshing the project metadata display
+          log("\nRefreshing project metadata display...");
+          try {
+            // Try to set the project columns metadata to include "tag"
+            const updatedColumns = await ppro.Metadata.getProjectColumnsMetadata();
+            const tagColumn = updatedColumns.find(col => col.name === "tag");
+            if (tagColumn) {
+              // Try to enable the column (set visible)
+              if (tagColumn.visible !== undefined) {
+                tagColumn.visible = true;
+              }
+              // Try to set the columns back with tag enabled
+              if (ppro.Metadata.setProjectColumnsMetadata) {
+                await ppro.Metadata.setProjectColumnsMetadata(updatedColumns);
+                log("Refreshed metadata columns", "green");
+              }
             }
-          } else {
-            log("Failed to execute metadata action", "red");
+          } catch (refreshError) {
+            log(`Could not refresh columns: ${refreshError.message}`, "orange");
           }
           
         } catch (error) {
