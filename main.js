@@ -67,114 +67,141 @@ async function addTagMasterMetadata() {
       log("No clips selected in the sequence. Please select a clip.", "red");
       return;
     }
-    log(`\n--- LISTE DES CLIPS SÉLECTIONNÉS (${selectedTrackItems.length}) ---`, "green");
+    log(`\n--- LISTE DES CLIPS SÉLECTIONNÉS ---`, "green");
     
-    // Array to store all selected clips with their info
-    const selectedClips = [];
+    // Use a Map to filter by ID (only show each unique ID once)
+    const uniqueClipsMap = new Map();
     
-    // Process each selected track item
-    for (let i = 0; i < selectedTrackItems.length; i++) {
-      const trackItem = selectedTrackItems[i];
-      
-      // Get the project item from the track item
+    for (const trackItem of selectedTrackItems) {
       const projectItem = await trackItem.getProjectItem();
       
-      // Get name from projectItem or trackItem
-      let clipName = "Unnamed clip";
-      if (projectItem && projectItem.name) {
-        clipName = projectItem.name;
-      } else if (trackItem.name) {
-        clipName = trackItem.name;
-      }
+      if (!projectItem) continue;
+      
+      // Get name
+      let clipName = projectItem.name || trackItem.name || "Unnamed clip";
       
       // Get ID using getId() method
-      let clipId = "Unknown ID";
-      if (projectItem && projectItem.getId) {
-        try {
-          clipId = await projectItem.getId();
-        } catch (idError) {
-          clipId = projectItem.id || "Unknown ID";
-        }
-      } else if (trackItem.getId) {
-        try {
-          clipId = await trackItem.getId();
-        } catch (idError) {
-          clipId = trackItem.id || "Unknown ID";
-        }
+      let clipId;
+      try {
+        clipId = await projectItem.getId();
+      } catch (idError) {
+        clipId = projectItem.id || "Unknown ID";
       }
       
-      // Store clip info
-      selectedClips.push({
-        index: i + 1,
-        name: clipName,
-        id: clipId,
-        projectItem: projectItem,
-        trackItem: trackItem
-      });
-      
-      // Display clip info
-      log(`  ${i + 1}. ${clipName} | ID: ${clipId}`, "blue");
+      // Only add if we haven't seen this ID before
+      if (!uniqueClipsMap.has(clipId)) {
+        uniqueClipsMap.set(clipId, {
+          name: clipName,
+          id: clipId,
+          projectItem: projectItem,
+          trackItem: trackItem
+        });
+      }
     }
     
-    log(`\nTotal: ${selectedClips.length} clip(s) sélectionné(s)`);
+    // Convert to array and display
+    const uniqueClips = Array.from(uniqueClipsMap.values());
     
-    // If we have clips, try to set metadata on the first one
-    if (selectedClips.length > 0) {
-      const firstClip = selectedClips[0];
-      log(`\n--- Processing first clip for metadata: ${firstClip.name} ---`);
+    for (let i = 0; i < uniqueClips.length; i++) {
+      const clip = uniqueClips[i];
+      log(`  ${i + 1}. ${clip.name} | ID: ${clip.id}`, "blue");
+    }
+    
+    log(`\nTotal: ${uniqueClips.length} clip(s) unique(s) sélectionné(s)`);
+    
+    // If we have clips, try to add "george" metadata column and set value
+    if (uniqueClips.length > 0) {
+      const firstClip = uniqueClips[0];
+      log(`\n--- Processing first clip: ${firstClip.name} ---`);
       
-      // Only proceed with metadata if we have a valid projectItem
       if (firstClip.projectItem) {
         try {
-          // Step 1: Check if 'tag-master' column exists in metadata schema
-          log("Checking metadata schema...");
-          const metadataColumns = await ppro.Metadata.getProjectColumnsMetadata();
-          const tagMasterExists = metadataColumns.some(col => col.name === "tag-master");
+          // Step 1: Add "george" to project metadata schema
+          log("Adding 'george' to project metadata schema...");
           
-          if (!tagMasterExists) {
-            log("Adding 'tag-master' to metadata schema...");
-            await ppro.Metadata.addPropertyToProjectMetadataSchema("tag-master", "Tag Master", 1);
-            log("Successfully added 'tag-master' to metadata schema", "green");
-          } else {
-            log("'tag-master' already exists in metadata schema", "blue");
+          // First check current columns
+          let metadataColumns = [];
+          try {
+            metadataColumns = await ppro.Metadata.getProjectColumnsMetadata();
+            log("Current metadata columns:", "blue");
+            log(JSON.stringify(metadataColumns.map(c => c.name), null, 2), "blue");
+          } catch (colsError) {
+            log(`Could not get columns: ${colsError.message}`, "orange");
           }
           
-          // Step 2: Get current metadata for the clip
-          const currentMetadata = await ppro.Metadata.getProjectMetadata(firstClip.projectItem);
-          log("Current metadata:");
+          // Check if "george" already exists
+          const georgeExists = metadataColumns.some(col => col.name === "george");
+          
+          if (!georgeExists) {
+            // Add "george" property to schema (1 = text type)
+            await ppro.Metadata.addPropertyToProjectMetadataSchema("george", "George", 1);
+            log("Successfully added 'george' to metadata schema", "green");
+          } else {
+            log("'george' already exists in metadata schema", "blue");
+          }
+          
+          // Step 2: Set "george" value for the clip
+          log("Setting 'george' value for the clip...");
+          
+          // Get current metadata safely
+          let currentMetadata = {};
+          try {
+            const metadataStr = await ppro.Metadata.getProjectMetadata(firstClip.projectItem);
+            if (metadataStr) {
+              currentMetadata = JSON.parse(metadataStr);
+            }
+          } catch (metadataError) {
+            log(`Could not get current metadata: ${metadataError.message}`, "orange");
+            currentMetadata = {};
+          }
+          
+          log("Current metadata:", "blue");
           log(JSON.stringify(currentMetadata, null, 2), "blue");
           
-          // Step 3: Set 'tag-master' to 'toto'
+          // Set george value
           const newMetadata = {
             ...currentMetadata,
-            "tag-master": "toto"
+            "george": "test"
           };
           
           // Create and execute the set metadata action
+          log("Creating metadata action...");
           const setMetadataAction = await ppro.Metadata.createSetProjectMetadataAction(
             firstClip.projectItem,
             JSON.stringify(newMetadata),
-            ["tag-master"]
+            ["george"]
           );
           
-          const success = await setMetadataAction.execute();
-          if (success) {
-            log("Successfully set 'tag-master' to 'toto' for the clip", "green");
-            
-            // Verify
-            const updatedMetadata = await ppro.Metadata.getProjectMetadata(firstClip.projectItem);
-            log("Updated metadata:");
-            log(JSON.stringify(updatedMetadata, null, 2), "green");
-          } else {
-            log("Failed to set metadata", "red");
+          if (!setMetadataAction) {
+            log("Failed to create metadata action", "red");
+            return;
           }
           
-        } catch (metadataError) {
-          log(`Metadata error: ${metadataError.message}`, "red");
-          log(`Stack: ${metadataError.stack}`, "red");
+          log("Executing metadata action...");
+          const success = await setMetadataAction.execute();
+          
+          if (success) {
+            log("Successfully set 'george' to 'test' for the clip", "green");
+            
+            // Verify by getting metadata again
+            try {
+              const updatedMetadataStr = await ppro.Metadata.getProjectMetadata(firstClip.projectItem);
+              const updatedMetadata = updatedMetadataStr ? JSON.parse(updatedMetadataStr) : {};
+              log("Updated metadata:", "green");
+              log(JSON.stringify(updatedMetadata, null, 2), "green");
+            } catch (verifyError) {
+              log(`Could not verify metadata: ${verifyError.message}`, "orange");
+            }
+          } else {
+            log("Failed to execute metadata action", "red");
+          }
+          
+        } catch (error) {
+          log(`Error in metadata process: ${error.message}`, "red");
+          if (error.stack) {
+            log(`Stack: ${error.stack}`, "red");
+          }
         }
-      } else {
-        log("No valid projectItem for the first clip, skipping metadata", "orange");
       }
     }
     
@@ -182,7 +209,9 @@ async function addTagMasterMetadata() {
     
   } catch (error) {
     log(`Error: ${error.message}`, "red");
-    log(`Stack: ${error.stack}`, "red");
+    if (error.stack) {
+      log(`Stack: ${error.stack}`, "red");
+    }
     console.error("Full error:", error);
   }
 }
