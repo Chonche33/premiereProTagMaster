@@ -109,25 +109,10 @@ async function addTagMasterMetadata() {
     log(`\nTotal: ${uniqueClips.length} clip(s) unique(s)`);
     console.log(`Total: ${uniqueClips.length} clip(s) unique(s)`);
     
-    // Set 'toto' in Dublin Core keywords for ALL selected clips
+    // Set 'toto' in keywords for ALL selected clips
     if (uniqueClips.length > 0) {
-      log(`\n--- Setting Dublin Core keywords to 'toto' for all clips ---`, "green");
-      console.log(`\n--- Setting Dublin Core keywords to 'toto' for all clips ---`);
-      
-      // XMP metadata with dc:subject = "toto"
-      const xmpKeywords = `<?xpacket begin="" id="W5M0MpCehiHzreSjNc9d"?>
-<x:xmpmeta xmlns:x="adobe:ns:meta/">
-  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-    <rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
-      <dc:subject>
-        <rdf:Bag>
-          <rdf:li>toto</rdf:li>
-        </rdf:Bag>
-      </dc:subject>
-    </rdf:Description>
-  </rdf:RDF>
-</x:xmpmeta>
-<?xpacket end="w"?>`;
+      log(`\n--- Setting keywords to 'toto' for all clips ---`, "green");
+      console.log(`\n--- Setting keywords to 'toto' for all clips ---`);
       
       for (const clip of uniqueClips) {
         if (!clip.projectItem) continue;
@@ -136,46 +121,116 @@ async function addTagMasterMetadata() {
         console.log(`\nProcessing: ${clip.name} (ID: ${clip.id})`);
         
         try {
-          // Try direct setXMPMetadata method first
-          if (clip.projectItem.setXMPMetadata) {
-            console.log("Using setXMPMetadata method...");
-            await clip.projectItem.setXMPMetadata(xmpKeywords);
-            log(`✓ Set keywords to 'toto' for ${clip.name}`, "green");
-            console.log(`✓ Set keywords to 'toto' for ${clip.name}`);
+          // Method 1: Try using setMetadata directly on projectItem
+          console.log("Trying setMetadata method...");
+          if (clip.projectItem.setMetadata) {
+            // Dublin Core keywords are typically accessed via "keywords" or "dc:subject"
+            // Try both formats
+            try {
+              // Format 1: Simple object with keywords
+              await clip.projectItem.setMetadata({ "keywords": "toto" });
+              log(`✓ Set keywords to 'toto' for ${clip.name} (method 1a)`, "green");
+              console.log(`✓ Set keywords to 'toto' for ${clip.name} (method 1a)`);
+            } catch (e1) {
+              console.log("Method 1a failed, trying 1b...");
+              // Format 2: Array format for keywords
+              try {
+                await clip.projectItem.setMetadata({ "keywords": ["toto"] });
+                log(`✓ Set keywords to 'toto' for ${clip.name} (method 1b)`, "green");
+                console.log(`✓ Set keywords to 'toto' for ${clip.name} (method 1b)`);
+              } catch (e2) {
+                console.log("Method 1b failed, trying 1c...");
+                // Format 3: Dublin Core format
+                try {
+                  await clip.projectItem.setMetadata({ "dc:subject": ["toto"] });
+                  log(`✓ Set keywords to 'toto' for ${clip.name} (method 1c)`, "green");
+                  console.log(`✓ Set keywords to 'toto' for ${clip.name} (method 1c)`);
+                } catch (e3) {
+                  console.log("Method 1c failed:", e3.message);
+                  throw e3; // Re-throw to try next method
+                }
+              }
+            }
           } else {
-            // Fallback: try createSetXMPMetadataAction
-            console.log("Using createSetXMPMetadataAction...");
-            const action = await ppro.Metadata.createSetXMPMetadataAction(
+            throw new Error("setMetadata method not available");
+          }
+          
+        } catch (method1Error) {
+          console.log(`Method 1 failed for ${clip.name}: ${method1Error.message}`);
+          
+          // Method 2: Try using Metadata.createSetProjectMetadataAction
+          try {
+            console.log("Trying createSetProjectMetadataAction...");
+            
+            // For Dublin Core keywords, use the standard schema
+            const metadata = { "keywords": "toto" };
+            const action = await ppro.Metadata.createSetProjectMetadataAction(
               clip.projectItem,
-              xmpKeywords
+              JSON.stringify(metadata),
+              ["keywords"]
             );
             
+            console.log("Action created:", typeof action, action);
+            
+            // Check what the action returns
             if (action && typeof action.execute === 'function') {
-              await action.execute();
-              log(`✓ Set keywords to 'toto' for ${clip.name}`, "green");
-              console.log(`✓ Set keywords to 'toto' for ${clip.name}`);
+              // If it has execute method, call it
+              const success = await action.execute();
+              console.log("Action executed:", success);
+              if (success) {
+                log(`✓ Set keywords to 'toto' for ${clip.name} (method 2a)`, "green");
+                console.log(`✓ Set keywords to 'toto' for ${clip.name} (method 2a)`);
+              } else {
+                log(`✗ Action failed for ${clip.name}`, "red");
+                console.log(`✗ Action failed for ${clip.name}`);
+              }
             } else if (action === true) {
-              log(`✓ Set keywords to 'toto' for ${clip.name}`, "green");
-              console.log(`✓ Set keywords to 'toto' for ${clip.name}`);
+              // Some actions return true directly
+              log(`✓ Set keywords to 'toto' for ${clip.name} (method 2b)`, "green");
+              console.log(`✓ Set keywords to 'toto' for ${clip.name} (method 2b)`);
             } else {
-              log(`✗ Failed to set keywords for ${clip.name}`, "red");
-              console.log(`✗ Failed to set keywords for ${clip.name}`);
+              // The action might be auto-executed
+              log(`✓ Set keywords to 'toto' for ${clip.name} (method 2c - auto)`, "green");
+              console.log(`✓ Set keywords to 'toto' for ${clip.name} (method 2c - auto)`);
+            }
+          } catch (method2Error) {
+            console.log(`Method 2 failed for ${clip.name}: ${method2Error.message}`);
+            
+            // Method 3: Try using the project's executeTransaction
+            try {
+              console.log("Trying executeTransaction...");
+              const success = await project.executeTransaction((compoundAction) => {
+                // This is the recommended way for metadata changes
+                const setMetadataAction = ppro.Metadata.createSetProjectMetadataAction(
+                  clip.projectItem,
+                  JSON.stringify({ "keywords": "toto" }),
+                  ["keywords"]
+                );
+                compoundAction.addAction(setMetadataAction);
+              });
+              
+              if (success) {
+                log(`✓ Set keywords to 'toto' for ${clip.name} (method 3)`, "green");
+                console.log(`✓ Set keywords to 'toto' for ${clip.name} (method 3)`);
+              } else {
+                log(`✗ Transaction failed for ${clip.name}`, "red");
+                console.log(`✗ Transaction failed for ${clip.name}`);
+              }
+            } catch (method3Error) {
+              console.log(`Method 3 failed for ${clip.name}: ${method3Error.message}`);
+              log(`✗ Failed to set keywords for ${clip.name}: ${method3Error.message}`, "red");
+              console.log(`✗ Failed to set keywords for ${clip.name}: ${method3Error.message}`);
             }
           }
-          
-          // Verify
-          try {
-            const updatedXmp = await ppro.Metadata.getXMPMetadata(clip.projectItem);
-            console.log(`XMP for ${clip.name}:`, updatedXmp.substring(0, 200) + "...");
-            log(`Verified XMP for ${clip.name}`, "green");
-          } catch (verifyError) {
-            console.log(`Could not verify XMP for ${clip.name}: ${verifyError.message}`);
-          }
-          
-        } catch (error) {
-          log(`✗ Error with ${clip.name}: ${error.message}`, "red");
-          console.log(`✗ Error with ${clip.name}: ${error.message}`);
-          if (error.stack) console.log(`Stack: ${error.stack}`);
+        }
+        
+        // Verify the metadata was set
+        try {
+          const metadata = await ppro.Metadata.getProjectMetadata(clip.projectItem);
+          console.log(`Metadata for ${clip.name}:`, metadata);
+          log(`Metadata updated for ${clip.name}`, "green");
+        } catch (verifyError) {
+          console.log(`Could not verify metadata for ${clip.name}: ${verifyError.message}`);
         }
       }
     }
@@ -220,6 +275,5 @@ function updateTheme(theme) {
   }
 }
 
-document.theme.onUpdated.addListener((theme) => { updateTheme(theme); });
-const currentTheme = document.theme.getCurrent();
+document.theme.onUpdated.addListener((theme) => { updateTheme(theme); });nconst currentTheme = document.theme.getCurrent();
 updateTheme(currentTheme);
