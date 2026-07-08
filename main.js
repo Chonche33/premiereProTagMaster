@@ -36,103 +36,145 @@ async function populateProjectInfo() {
   }
 }
 
-// Function to get all metadata properties from a clip
-async function getAllMetadataProperties(projectItem) {
+// Function to get all metadata columns from project
+async function getAllMetadataColumns(project) {
   try {
-    const metadata = await ppro.Metadata.getProjectMetadata(projectItem);
-    if (!metadata) {
-      return [];
-    }
-    
-    const xmpProject = new XMPMeta(metadata);
-    
-    // Get all properties from both namespaces
-    const pproProperties = xmpProject.getAllProperties(PPRO_METADATA_URL) || [];
-    const dcProperties = xmpProject.getAllProperties(DUBLIN_CORE_URL) || [];
-    
-    // Combine properties
-    const allProperties = [...pproProperties, ...dcProperties];
-    
-    // Extract property names
-    const propertyNames = allProperties.map(prop => {
-      let name = prop.path || prop.name || "";
-      // Clean up the name by removing namespace
-      name = name.replace(PPRO_METADATA_URL, "")
-                 .replace(DUBLIN_CORE_URL, "dc:");
-      return name;
-    });
-    
-    return propertyNames;
-  } catch (error) {
-    console.log("Error getting metadata properties:", error.message);
-    return [];
-  }
-}
-
-// Function to find text-type metadata columns by checking actual property types
-async function findTextMetadataColumns(project) {
-  try {
-    const projectRootItem = await project.getRootItem();
-    const projectItems = await projectRootItem.getItems();
-    
-    if (projectItems.length === 0) {
-      return [];
-    }
-    
-    // Find first ClipProjectItem
-    let firstClip = null;
-    for (const item of projectItems) {
-      if (ppro.ClipProjectItem.cast(item)) {
-        firstClip = item;
-        break;
+    // Method 1: Try getProjectColumnsMetadata on project (static method)
+    if (ppro.Project.getProjectColumnsMetadata) {
+      const metadataStr = await ppro.Project.getProjectColumnsMetadata();
+      if (metadataStr) {
+        const metadataColumns = JSON.parse(metadataStr);
+        console.log("Method 1 (Project.getProjectColumnsMetadata):", metadataColumns.length, "columns");
+        return metadataColumns;
       }
     }
     
-    if (!firstClip) {
-      return [];
+    // Method 2: Try on a specific projectItem
+    const projectRootItem = await project.getRootItem();
+    const projectItems = await projectRootItem.getItems();
+    
+    for (const projectItem of projectItems) {
+      if (ppro.ClipProjectItem.cast(projectItem)) {
+        try {
+          if (ppro.Metadata.getProjectColumnsMetadata) {
+            const metadataStr = await ppro.Metadata.getProjectColumnsMetadata(projectItem);
+            if (metadataStr) {
+              const metadataColumns = JSON.parse(metadataStr);
+              console.log("Method 2 (Metadata.getProjectColumnsMetadata):", metadataColumns.length, "columns");
+              return metadataColumns;
+            }
+          }
+        } catch (error) {
+          console.log("Method 2 failed:", error.message);
+        }
+        
+        // Method 3: Try on the projectItem directly
+        try {
+          if (projectItem.getProjectColumnsMetadata) {
+            const metadataStr = await projectItem.getProjectColumnsMetadata();
+            if (metadataStr) {
+              const metadataColumns = JSON.parse(metadataStr);
+              console.log("Method 3 (projectItem.getProjectColumnsMetadata):", metadataColumns.length, "columns");
+              return metadataColumns;
+            }
+          }
+        } catch (error) {
+          console.log("Method 3 failed:", error.message);
+        }
+        
+        // Method 4: If all else fails, get metadata from the clip and extract properties
+        try {
+          const metadata = await ppro.Metadata.getProjectMetadata(projectItem);
+          if (metadata) {
+            const xmpProject = new XMPMeta(metadata);
+            const pproProperties = xmpProject.getAllProperties(PPRO_METADATA_URL) || [];
+            const dcProperties = xmpProject.getAllProperties(DUBLIN_CORE_URL) || [];
+            
+            // Convert properties to column format
+            const columns = [...pproProperties, ...dcProperties].map(prop => ({
+              ColumnName: prop.path ? prop.path.replace(PPRO_METADATA_URL, "").replace(DUBLIN_CORE_URL, "dc:") : prop.name,
+              ColumnID: prop.path || prop.name,
+              type: typeof prop.value
+            }));
+            
+            console.log("Method 4 (XMP properties):", columns.length, "columns");
+            return columns;
+          }
+        } catch (error) {
+          console.log("Method 4 failed:", error.message);
+        }
+        
+        break; // Found a ClipProjectItem, no need to continue
+      }
     }
     
-    // Get all metadata properties from the first clip
-    const allProperties = await getAllMetadataProperties(firstClip);
-    
-    // Known text-type properties (from Premiere Pro metadata schema)
-    const knownTextProperties = [
-      "tag",
-      "Tag",
-      "Column.PropertyText.Tag",
-      "keywords",
-      "Keywords",
-      "dc:subject",
-      "Column.PropertyText.Label",
-      "Column.PropertyText.Status",
-      "Column.PropertyText.Comment",
-      "Column.PropertyText.Description",
-      "Column.PropertyText.Scene",
-      "Column.PropertyText.Shot",
-      "Column.PropertyText.Take",
-      "Column.PropertyText.Note",
-      "Column.PropertyText.Log",
-      "Name",
-      "Column.Intrinsic.Name"
-    ];
-    
-    // Filter to only include known text properties that exist
-    const textColumns = allProperties.filter(prop => 
-      knownTextProperties.includes(prop)
-    );
-    
-    // Also include any property that contains "PropertyText" or "Text"
-    const additionalTextColumns = allProperties.filter(prop => 
-      (prop.includes("PropertyText") || prop.includes("Text")) && 
-      !textColumns.includes(prop)
-    );
-    
-    return [...textColumns, ...additionalTextColumns];
-    
   } catch (error) {
-    console.log("Error finding text metadata columns:", error.message);
+    console.log("Error in getAllMetadataColumns:", error.message);
+  }
+  
+  return [];
+}
+
+// Function to filter text-type columns
+function filterTextTypeColumns(metadataColumns) {
+  if (!metadataColumns || metadataColumns.length === 0) {
     return [];
   }
+  
+  // Filter out non-text types and non-editable columns
+  const textTypeColumns = metadataColumns.filter(col => {
+    const colName = col.ColumnName || col.name || "";
+    const colType = col.type || "";
+    
+    // Skip if it's a known non-text type
+    if (colType === "number" || colType === "boolean" || colType === "date") {
+      return false;
+    }
+    
+    // Skip internal/non-user-editable columns by name pattern
+    if (colName.includes("Intrinsic.") ||
+        colName.includes("PropertyBool.") ||
+        colName.includes("PropertyText.Sync") ||
+        colName.includes("PropertyText.Codec") ||
+        colName.includes("PropertyText.Field") ||
+        colName.includes("Transcript") ||
+        colName.includes("Timecode") ||
+        colName.includes("Duration") ||
+        colName.includes("Usage") ||
+        colName.includes("Status") ||
+        colName.includes("Path") ||
+        colName.includes("FileName") ||
+        colName.includes("MediaType") ||
+        colName.includes("Frame Rate") ||
+        colName.includes("Media Start") ||
+        colName.includes("Media End")) {
+      return false;
+    }
+    
+    // Include if it's a PropertyText column or known text column
+    if (colName.includes("PropertyText.") ||
+        colName.includes("Comment") ||
+        colName.includes("Description") ||
+        colName.includes("tag") ||
+        colName.includes("Tag") ||
+        colName.includes("keywords") ||
+        colName.includes("Keywords") ||
+        colName.includes("dc:subject") ||
+        colName.includes("Label") ||
+        colName.includes("Scene") ||
+        colName.includes("Shot") ||
+        colName.includes("Take") ||
+        colName.includes("Note") ||
+        colName.includes("Log") ||
+        colName === "Name") {
+      return true;
+    }
+    
+    // Default: include if type is string or unknown
+    return colType === "string" || colType === "" || !colType;
+  });
+  
+  return textTypeColumns;
 }
 
 // Function to set 'toto' in the 'tag' field for all selected clips
@@ -162,20 +204,23 @@ async function addTagMasterMetadata() {
     log(`Active sequence: ${sequence.name}`);
     console.log(`Active sequence: ${sequence.name}`);
 
-    // Get text-type metadata columns
+    // Get ALL metadata columns and filter text-type
     log(`\n--- COLONNES DE METADONNEES DE TYPE TEXTE ---`, "green");
     console.log(`\n--- COLONNES DE METADONNEES DE TYPE TEXTE ---`);
     
-    const textColumns = await findTextMetadataColumns(project);
+    const allMetadataColumns = await getAllMetadataColumns(project);
+    const textTypeColumns = filterTextTypeColumns(allMetadataColumns);
     
-    if (textColumns.length > 0) {
+    if (textTypeColumns.length > 0) {
       // Display text-type column names
-      for (let i = 0; i < textColumns.length; i++) {
-        log(`  ${i + 1}. ${textColumns[i]}`, "blue");
-        console.log(`  ${i + 1}. ${textColumns[i]}`);
+      for (let i = 0; i < textTypeColumns.length; i++) {
+        const col = textTypeColumns[i];
+        const colName = col.ColumnName || col.name || "Unknown";
+        log(`  ${i + 1}. ${colName}`, "blue");
+        console.log(`  ${i + 1}. ${colName}`);
       }
-      log(`\nTotal: ${textColumns.length} colonnes de type texte`, "blue");
-      console.log(`Total: ${textColumns.length} colonnes de type texte`);
+      log(`\nTotal: ${textTypeColumns.length} colonnes de type texte`, "blue");
+      console.log(`Total: ${textTypeColumns.length} colonnes de type texte`);
     } else {
       log("Aucune colonne de type texte trouvee", "orange");
       console.log("Aucune colonne de type texte trouvee");
@@ -345,6 +390,5 @@ function updateTheme(theme) {
   }
 }
 
-document.theme.onUpdated.addListener((theme) => { updateTheme(theme); });
-const currentTheme = document.theme.getCurrent();
+document.theme.onUpdated.addListener((theme) => { updateTheme(theme); });const currentTheme = document.theme.getCurrent();
 updateTheme(currentTheme);
