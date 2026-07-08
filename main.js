@@ -12,8 +12,12 @@
  * written permission of Adobe.
  **************************************************************************/
 
-// Global object.
+// Global objects.
 const ppro = require("premierepro");
+const uxp = require("uxp");
+const { XMPMeta } = uxp.xmp;
+
+const PPRO_METADATA_URL = "http://ns.adobe.com/premierePrivateProjectMetaData/1.0/";
 
 // Call the Premiere Pro API to populate Application Info area.
 async function populateProjectInfo() {
@@ -31,12 +35,12 @@ async function populateProjectInfo() {
   }
 }
 
-// Function to set 'toto' in the 'tag' field for all selected clips
+// Function to get selected clips and display metadata columns
 async function addTagMasterMetadata() {
   try {
     console.log("=== TAG MASTER PLUGIN LOG ===");
     
-    log("Getting selected clips...", "green");
+    log("Getting project info...", "green");
     
     const project = await ppro.Project.getActiveProject();
     if (!project) {
@@ -58,113 +62,44 @@ async function addTagMasterMetadata() {
     log(`Active sequence: ${sequence.name}`);
     console.log(`Active sequence: ${sequence.name}`);
 
-    // NEW: Try to get project metadata columns
+    // Get metadata columns from first clip in project
     log(`\n--- PROJECT METADATA COLUMNS ---`, "green");
     console.log(`\n--- PROJECT METADATA COLUMNS ---`);
     
     try {
-      // Method 1: Try getProjectColumnsMetadata
-      let metadataColumns = [];
-      try {
-        metadataColumns = await ppro.Metadata.getProjectColumnsMetadata();
-        console.log("getProjectColumnsMetadata result:", metadataColumns);
-      } catch (e) {
-        console.log("getProjectColumnsMetadata failed:", e.message);
-      }
+      const projectRootItem = await project.getRootItem();
+      const projectItems = await projectRootItem.getItems();
       
-      if (metadataColumns && metadataColumns.length > 0) {
-        for (let i = 0; i < metadataColumns.length; i++) {
-          const col = metadataColumns[i];
-          const colInfo = `  ${i + 1}. ${col.name} (${col.displayName || 'N/A'}) - Type: ${col.type || 'unknown'}`;
-          log(colInfo, "blue");
-          console.log(colInfo);
-        }
-        log(`Total: ${metadataColumns.length} columns (via getProjectColumnsMetadata)`, "blue");
-      } else {
-        // Method 2: Get metadata from first clip to see available fields
-        log("Getting metadata from first clip to see available fields...", "blue");
-        console.log("Getting metadata from first clip...");
-        
-        const sequences = await project.getSequences();
-        if (sequences && sequences.length > 0) {
-          const firstSeq = sequences[0];
-          const firstSeqSelection = await firstSeq.getSelection();
-          if (firstSeqSelection && firstSeqSelection.getTrackItems) {
-            const firstSeqItems = await firstSeqSelection.getTrackItems();
-            if (firstSeqItems && firstSeqItems.length > 0) {
-              const firstItem = await firstSeqItems[0].getProjectItem();
-              if (firstItem) {
-                try {
-                  const firstItemMetadata = await ppro.Metadata.getProjectMetadata(firstItem);
-                  console.log("First item metadata:", firstItemMetadata);
-                  
-                  if (firstItemMetadata) {
-                    if (typeof firstItemMetadata === 'string') {
-                      // Try to parse as JSON
-                      try {
-                        const parsed = JSON.parse(firstItemMetadata);
-                        log("Available metadata fields:", "blue");
-                        for (const key in parsed) {
-                          log(`  - ${key}: ${parsed[key]}`, "blue");
-                          console.log(`  - ${key}: ${parsed[key]}`);
-                        }
-                      } catch (e) {
-                        // Show raw string (first 500 chars)
-                        log("Raw metadata (first 500 chars):", "blue");
-                        log(firstItemMetadata.substring(0, 500), "blue");
-                        console.log("Raw metadata:", firstItemMetadata.substring(0, 500));
-                      }
-                    } else if (typeof firstItemMetadata === 'object') {
-                      log("Available metadata fields:", "blue");
-                      for (const key in firstItemMetadata) {
-                        log(`  - ${key}: ${firstItemMetadata[key]}`, "blue");
-                        console.log(`  - ${key}: ${firstItemMetadata[key]}`);
-                      }
-                    }
-                  }
-                } catch (metaError) {
-                  console.log("Could not get first item metadata:", metaError.message);
-                }
-              }
-            }
+      if (projectItems && projectItems.length > 0) {
+        // Find first ClipProjectItem
+        let firstClip = null;
+        for (const item of projectItems) {
+          if (ppro.ClipProjectItem.cast(item)) {
+            firstClip = item;
+            break;
           }
         }
         
-        // Method 3: Try to get XMP metadata to see structure
-        log("\nGetting XMP metadata structure...", "blue");
-        console.log("\nGetting XMP metadata structure...");
-        try {
-          const sequences = await project.getSequences();
-          if (sequences && sequences.length > 0) {
-            const firstSeq = sequences[0];
-            const firstSeqSelection = await firstSeq.getSelection();
-            if (firstSeqSelection && firstSeqSelection.getTrackItems) {
-              const firstSeqItems = await firstSeqSelection.getTrackItems();
-              if (firstSeqItems && firstSeqItems.length > 0) {
-                const firstItem = await firstSeqItems[0].getProjectItem();
-                if (firstItem) {
-                  const xmpMetadata = await ppro.Metadata.getXMPMetadata(firstItem);
-                  if (xmpMetadata) {
-                    console.log("XMP metadata structure (first 1000 chars):", xmpMetadata.substring(0, 1000));
-                    
-                    // Extract all field names from XMP
-                    const fieldMatches = xmpMetadata.match(/<[^:>]+:[^>]+>/g);
-                    if (fieldMatches) {
-                      log("XMP metadata fields:", "blue");
-                      const uniqueFields = [...new Set(fieldMatches)];
-                      for (const field of uniqueFields) {
-                        log(`  - ${field}`, "blue");
-                        console.log(`  - ${field}`);
-                      }
-                      log(`Total: ${uniqueFields.length} XMP fields`, "blue");
-                    }
-                  }
-                }
+        if (firstClip) {
+          const firstClipMetadata = await ppro.Metadata.getProjectMetadata(firstClip);
+          console.log("First clip metadata:", firstClipMetadata);
+          
+          if (firstClipMetadata) {
+            const xmpProject = new XMPMeta(firstClipMetadata);
+            
+            // Get all properties from PPRO_METADATA_URL namespace
+            const properties = xmpProject.getAllProperties(PPRO_METADATA_URL);
+            console.log("Properties:", properties);
+            
+            if (properties && properties.length > 0) {
+              log("Available metadata columns:", "blue");
+              for (const prop of properties) {
+                const propName = prop.path ? prop.path.replace(PPRO_METADATA_URL, "") : prop.name;
+                log(`  - ${propName}`, "blue");
+                console.log(`  - ${propName}`);
               }
             }
           }
-        } catch (xmpError) {
-          console.log("Could not get XMP metadata:", xmpError.message);
         }
       }
     } catch (colsError) {
@@ -172,6 +107,7 @@ async function addTagMasterMetadata() {
       console.log(`Could not get metadata columns: ${colsError.message}`);
     }
 
+    // Get selected clips
     const selection = await sequence.getSelection();
     if (!selection || !selection.getTrackItems) {
       const errorMsg = "No selection found in the sequence";
@@ -228,17 +164,6 @@ async function addTagMasterMetadata() {
       log(`\n--- Setting 'tag' to 'toto' for all clips ---`, "green");
       console.log(`\n--- Setting 'tag' to 'toto' for all clips ---`);
       
-      // Create XMP with tag set to 'toto'
-      const tagXmp = `<?xpacket begin="" id="W5M0MpCehiHzreSjNc9d"?>
-<x:xmpmeta xmlns:x="adobe:ns:meta/">
-  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-    <rdf:Description rdf:about="" xmlns:premierePrivateProjectMetaData="http://ns.adobe.com/premierePrivateProjectMetaData/1.0/">
-      <premierePrivateProjectMetaData:tag>toto</premierePrivateProjectMetaData:tag>
-    </rdf:Description>
-  </rdf:RDF>
-</x:xmpmeta>
-<?xpacket end="w"?>`;
-      
       for (const clip of uniqueClips) {
         if (!clip.projectItem) continue;
         
@@ -246,17 +171,71 @@ async function addTagMasterMetadata() {
         console.log(`\nProcessing: ${clip.name} (ID: ${clip.id})`);
         
         try {
-          // Use createSetXMPMetadataAction (this worked in your logs)
-          console.log("Creating XMP metadata action...");
-          const action = await ppro.Metadata.createSetXMPMetadataAction(
+          // Get current metadata
+          const currentMetadata = await ppro.Metadata.getProjectMetadata(clip.projectItem);
+          console.log(`Current metadata for ${clip.name}:`, currentMetadata ? "exists" : "null");
+          
+          // Create XMPMeta object
+          let xmpProject;
+          if (currentMetadata) {
+            xmpProject = new XMPMeta(currentMetadata);
+          } else {
+            xmpProject = new XMPMeta();
+          }
+          
+          // Set the 'tag' property using the correct namespace
+          console.log("Setting tag property...");
+          xmpProject.setProperty(PPRO_METADATA_URL, "Column.PropertyText.Tag", "toto");
+          
+          // Also try just 'tag' (as seen in your XMP logs)
+          xmpProject.setProperty(PPRO_METADATA_URL, "tag", "toto");
+          
+          // Serialize to string
+          const newXmpStr = xmpProject.serialize();
+          console.log("New XMP (first 500 chars):", newXmpStr.substring(0, 500));
+          
+          // Create and execute action
+          const updatedFields = ["Column.PropertyText.Tag", "tag"];
+          const action = await ppro.Metadata.createSetProjectMetadataAction(
             clip.projectItem,
-            tagXmp
+            newXmpStr,
+            updatedFields
           );
           
           console.log("Action created:", typeof action);
           
-          log(`✅ SUCCESS: 'tag' set to 'toto' for ${clip.name}`, "green");
-          console.log(`✅ SUCCESS: 'tag' set to 'toto' for ${clip.name}`);
+          // Execute the action
+          if (action && typeof action.execute === 'function') {
+            const success = await action.execute();
+            console.log("Action executed:", success);
+            if (success) {
+              log(`✅ SUCCESS: 'tag' set to 'toto' for ${clip.name}`, "green");
+              console.log(`✅ SUCCESS: 'tag' set to 'toto' for ${clip.name}`);
+            } else {
+              log(`❌ Action failed for ${clip.name}`, "red");
+              console.log(`❌ Action failed for ${clip.name}`);
+            }
+          } else {
+            // Action is auto-executed
+            log(`✅ SUCCESS: 'tag' set to 'toto' for ${clip.name} (auto-executed)`, "green");
+            console.log(`✅ SUCCESS: 'tag' set to 'toto' for ${clip.name} (auto-executed)`);
+          }
+          
+          // Verify
+          try {
+            const updatedMetadata = await ppro.Metadata.getProjectMetadata(clip.projectItem);
+            const updatedXmp = new XMPMeta(updatedMetadata);
+            const tagValue = updatedXmp.getProperty(PPRO_METADATA_URL, "tag");
+            if (tagValue && tagValue.value === "toto") {
+              log(`✅ VERIFIED: 'tag' is now 'toto' for ${clip.name}`, "green");
+              console.log(`✅ VERIFIED: 'tag' is now 'toto' for ${clip.name}`);
+            } else {
+              log(`⚠ Tag value for ${clip.name}: ${tagValue ? tagValue.value : 'not set'}`, "orange");
+              console.log(`⚠ Tag value for ${clip.name}: ${tagValue ? tagValue.value : 'not set'}`);
+            }
+          } catch (verifyError) {
+            console.log(`Could not verify for ${clip.name}: ${verifyError.message}`);
+          }
           
         } catch (error) {
           log(`❌ FAILED: ${clip.name} - ${error.message}`, "red");
