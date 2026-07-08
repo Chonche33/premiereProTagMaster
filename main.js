@@ -152,6 +152,52 @@ async function getMetdataColumns(project) {
   }
 }
 
+// Function to get only text-type metadata columns
+function getTextTypeColumns(metadataColumns) {
+  if (!metadataColumns || metadataColumns.length === 0) {
+    return [];
+  }
+  
+  // Filter columns that are text type
+  // Based on column name patterns and known text columns
+  const textTypeColumns = [];
+  
+  for (const col of metadataColumns) {
+    const colName = col.ColumnName || col.name || "";
+    
+    // Skip non-editable columns (already filtered by findViableMetadataColumns)
+    // But we need to filter by type
+    
+    // Known text-type column patterns
+    const isTextType = 
+      colName.includes("PropertyText.") ||
+      colName.includes("Comment") ||
+      colName.includes("Description") ||
+      colName.includes("Author") ||
+      colName.includes("Copyright") ||
+      colName.includes("tag") ||
+      colName.includes("Tag") ||
+      colName.includes("keywords") ||
+      colName.includes("Keywords") ||
+      colName.includes("dc:subject") ||
+      colName.includes("Label") ||
+      colName.includes("Status") ||
+      colName.includes("Scene") ||
+      colName.includes("Shot") ||
+      colName.includes("Take") ||
+      colName.includes("Note") ||
+      colName.includes("Log") ||
+      // Check if it's NOT in the non-editable list (already filtered, but just in case)
+      !kColumnsCannotBeEdited.includes(colName);
+    
+    if (isTextType) {
+      textTypeColumns.push(col);
+    }
+  }
+  
+  return textTypeColumns;
+}
+
 // Function to set 'toto' in the 'tag' field for all selected clips
 async function addTagMasterMetadata() {
   try {
@@ -180,24 +226,25 @@ async function addTagMasterMetadata() {
     console.log(`Active sequence: ${sequence.name}`);
 
     // Get ALL metadata columns (like tag-sampling)
-    log(`\n--- COLONNES DE METADONNEES DISPONIBLES ---`, "green");
-    console.log(`\n--- COLONNES DE METADONNEES DISPONIBLES ---`);
+    log(`\n--- COLONNES DE METADONNEES DE TYPE TEXTE ---`, "green");
+    console.log(`\n--- COLONNES DE METADONNEES DE TYPE TEXTE ---`);
     
-    const metadataColumns = await getMetdataColumns(project);
+    const allMetadataColumns = await getMetdataColumns(project);
+    const textTypeColumns = getTextTypeColumns(allMetadataColumns);
     
-    if (metadataColumns && metadataColumns.length > 0) {
-      // Display column names only
-      for (let i = 0; i < metadataColumns.length; i++) {
-        const col = metadataColumns[i];
+    if (textTypeColumns.length > 0) {
+      // Display only text-type column names
+      for (let i = 0; i < textTypeColumns.length; i++) {
+        const col = textTypeColumns[i];
         const colName = col.ColumnName || col.name || "Unknown";
         log(`  ${i + 1}. ${colName}`, "blue");
         console.log(`  ${i + 1}. ${colName}`);
       }
-      log(`\nTotal: ${metadataColumns.length} colonnes de metadonnees editables`, "blue");
-      console.log(`Total: ${metadataColumns.length} colonnes de metadonnees editables`);
+      log(`\nTotal: ${textTypeColumns.length} colonnes de type texte`, "blue");
+      console.log(`Total: ${textTypeColumns.length} colonnes de type texte`);
     } else {
-      log("Aucune colonne de metadonnees trouvee", "orange");
-      console.log("Aucune colonne de metadonnees trouvee");
+      log("Aucune colonne de type texte trouvee", "orange");
+      console.log("Aucune colonne de type texte trouvee");
     }
 
     // Get selected clips
