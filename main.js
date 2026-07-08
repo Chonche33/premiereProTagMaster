@@ -36,153 +36,195 @@ async function populateProjectInfo() {
   }
 }
 
-// Function to get all metadata columns from project
-async function getAllMetadataColumns(project) {
+// Function to create a new metadata column
+async function createNewMetadataColumn() {
   try {
-    // Method 1: Try getProjectColumnsMetadata on project (static method)
-    if (ppro.Project.getProjectColumnsMetadata) {
-      const metadataStr = await ppro.Project.getProjectColumnsMetadata();
-      if (metadataStr) {
-        const metadataColumns = JSON.parse(metadataStr);
-        console.log("Method 1 (Project.getProjectColumnsMetadata):", metadataColumns.length, "columns");
-        return metadataColumns;
-      }
+    const newTagName = document.getElementById("new-tag-input").value.trim();
+    
+    if (!newTagName) {
+      log("Please enter a name for the new tag column", "red");
+      return;
     }
     
-    // Method 2: Try on a specific projectItem
-    const projectRootItem = await project.getRootItem();
-    const projectItems = await projectRootItem.getItems();
+    log(`Creating new metadata column: ${newTagName}...`, "green");
+    console.log(`Creating new metadata column: ${newTagName}`);
     
-    for (const projectItem of projectItems) {
-      if (ppro.ClipProjectItem.cast(projectItem)) {
-        try {
-          if (ppro.Metadata.getProjectColumnsMetadata) {
-            const metadataStr = await ppro.Metadata.getProjectColumnsMetadata(projectItem);
-            if (metadataStr) {
-              const metadataColumns = JSON.parse(metadataStr);
-              console.log("Method 2 (Metadata.getProjectColumnsMetadata):", metadataColumns.length, "columns");
-              return metadataColumns;
-            }
-          }
-        } catch (error) {
-          console.log("Method 2 failed:", error.message);
-        }
-        
-        // Method 3: Try on the projectItem directly
-        try {
-          if (projectItem.getProjectColumnsMetadata) {
-            const metadataStr = await projectItem.getProjectColumnsMetadata();
-            if (metadataStr) {
-              const metadataColumns = JSON.parse(metadataStr);
-              console.log("Method 3 (projectItem.getProjectColumnsMetadata):", metadataColumns.length, "columns");
-              return metadataColumns;
-            }
-          }
-        } catch (error) {
-          console.log("Method 3 failed:", error.message);
-        }
-        
-        // Method 4: If all else fails, get metadata from the clip and extract properties
-        try {
-          const metadata = await ppro.Metadata.getProjectMetadata(projectItem);
-          if (metadata) {
-            const xmpProject = new XMPMeta(metadata);
-            const pproProperties = xmpProject.getAllProperties(PPRO_METADATA_URL) || [];
-            const dcProperties = xmpProject.getAllProperties(DUBLIN_CORE_URL) || [];
-            
-            // Convert properties to column format
-            const columns = [...pproProperties, ...dcProperties].map(prop => ({
-              ColumnName: prop.path ? prop.path.replace(PPRO_METADATA_URL, "").replace(DUBLIN_CORE_URL, "dc:") : prop.name,
-              ColumnID: prop.path || prop.name,
-              type: typeof prop.value
-            }));
-            
-            console.log("Method 4 (XMP properties):", columns.length, "columns");
-            return columns;
-          }
-        } catch (error) {
-          console.log("Method 4 failed:", error.message);
-        }
-        
-        break; // Found a ClipProjectItem, no need to continue
-      }
+    const project = await ppro.Project.getActiveProject();
+    if (!project) {
+      log("No active project found", "red");
+      return;
+    }
+    
+    // Try to add the property to project metadata schema
+    // Type 1 = string/text (based on Adobe documentation)
+    try {
+      await ppro.Metadata.addPropertyToProjectMetadataSchema(
+        newTagName,
+        newTagName.charAt(0).toUpperCase() + newTagName.slice(1), // Capitalize first letter for display
+        1 // Type: 1 = string/text
+      );
+      
+      log(`✅ Successfully created metadata column: ${newTagName}`, "green");
+      console.log(`✅ Successfully created metadata column: ${newTagName}`);
+      
+      // Clear the input field
+      document.getElementById("new-tag-input").value = "";
+      
+    } catch (error) {
+      log(`❌ Failed to create column: ${error.message}`, "red");
+      console.log(`❌ Failed to create column: ${error.message}`);
     }
     
   } catch (error) {
-    console.log("Error in getAllMetadataColumns:", error.message);
+    log(`Error: ${error.message}`, "red");
+    console.log(`Error: ${error.message}`);
   }
-  
-  return [];
 }
 
-// Function to filter text-type columns
-function filterTextTypeColumns(metadataColumns) {
-  if (!metadataColumns || metadataColumns.length === 0) {
-    return [];
+// Function to apply tag value to selected clips
+async function applyTagToSelectedClips() {
+  try {
+    const tagValue = document.getElementById("my-tag-input").value.trim();
+    const columnName = "newtag"; // Fixed column name as requested
+    
+    if (!tagValue) {
+      log("Please enter a tag value", "red");
+      return;
+    }
+    
+    log(`Applying '${tagValue}' to 'newtag' column for selected clips...`, "green");
+    console.log(`Applying '${tagValue}' to 'newtag' column for selected clips`);
+    
+    const project = await ppro.Project.getActiveProject();
+    if (!project) {
+      log("No active project found", "red");
+      return;
+    }
+    
+    const sequence = await project.getActiveSequence();
+    if (!sequence) {
+      log("No active sequence found", "red");
+      return;
+    }
+    
+    // Get selected clips
+    const selection = await sequence.getSelection();
+    if (!selection || !selection.getTrackItems) {
+      log("No selection found in the sequence", "red");
+      return;
+    }
+    
+    const selectedTrackItems = await selection.getTrackItems();
+    if (!selectedTrackItems || selectedTrackItems.length === 0) {
+      log("No clips selected in the sequence", "red");
+      return;
+    }
+    
+    // Filter by unique project item ID
+    const uniqueClipsMap = new Map();
+    
+    for (const trackItem of selectedTrackItems) {
+      const projectItem = await trackItem.getProjectItem();
+      if (!projectItem) continue;
+      
+      const clipName = projectItem.name || trackItem.name || "Unnamed clip";
+      let clipId;
+      try {
+        clipId = await projectItem.getId();
+      } catch (idError) {
+        clipId = projectItem.id || "Unknown ID";
+      }
+      
+      if (!uniqueClipsMap.has(clipId)) {
+        uniqueClipsMap.set(clipId, { name: clipName, id: clipId, projectItem });
+      }
+    }
+    
+    const uniqueClips = Array.from(uniqueClipsMap.values());
+    
+    log(`\nFound ${uniqueClips.length} unique clip(s):`, "blue");
+    console.log(`Found ${uniqueClips.length} unique clip(s)`);
+    
+    for (let i = 0; i < uniqueClips.length; i++) {
+      const clip = uniqueClips[i];
+      log(`  ${i + 1}. ${clip.name} | ID: ${clip.id}`, "blue");
+      console.log(`  ${i + 1}. ${clip.name} | ID: ${clip.id}`);
+    }
+    
+    // Apply tag to each clip
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (const clip of uniqueClips) {
+      if (!clip.projectItem) continue;
+      
+      try {
+        // Get current metadata
+        const currentMetadata = await ppro.Metadata.getProjectMetadata(clip.projectItem);
+        
+        // Create XMPMeta object
+        let xmpProject;
+        if (currentMetadata) {
+          xmpProject = new XMPMeta(currentMetadata);
+        } else {
+          xmpProject = new XMPMeta();
+        }
+        
+        // Set the newtag property
+        xmpProject.setProperty(PPRO_METADATA_URL, columnName, tagValue);
+        xmpProject.setProperty(PPRO_METADATA_URL, `Column.PropertyText.${columnName.charAt(0).toUpperCase() + columnName.slice(1)}`, tagValue);
+        
+        // Serialize to string
+        const newXmpStr = xmpProject.serialize();
+        
+        // Create and execute action
+        const updatedFields = [columnName, `Column.PropertyText.${columnName.charAt(0).toUpperCase() + columnName.slice(1)}`];
+        const action = await ppro.Metadata.createSetProjectMetadataAction(
+          clip.projectItem,
+          newXmpStr,
+          updatedFields
+        );
+        
+        // Execute the action
+        if (action && typeof action.execute === 'function') {
+          const success = await action.execute();
+          if (success) {
+            successCount++;
+          } else {
+            failCount++;
+          }
+        } else {
+          // Action is auto-executed
+          successCount++;
+        }
+        
+      } catch (error) {
+        log(`❌ Failed to set '${columnName}' for ${clip.name}: ${error.message}`, "red");
+        console.log(`❌ Failed to set '${columnName}' for ${clip.name}: ${error.message}`);
+        failCount++;
+      }
+    }
+    
+    log(`\n✅ Applied '${tagValue}' to ${successCount} clip(s)`, "green");
+    log(`❌ Failed for ${failCount} clip(s)`, failCount > 0 ? "red" : "green");
+    console.log(`✅ Applied '${tagValue}' to ${successCount} clip(s)`);
+    console.log(`❌ Failed for ${failCount} clip(s)`);
+    
+    // Clear the input field
+    document.getElementById("my-tag-input").value = "";
+    
+  } catch (error) {
+    log(`Error: ${error.message}`, "red");
+    console.log(`Error: ${error.message}`);
   }
-  
-  // Filter out non-text types and non-editable columns
-  const textTypeColumns = metadataColumns.filter(col => {
-    const colName = col.ColumnName || col.name || "";
-    const colType = col.type || "";
-    
-    // Skip if it's a known non-text type
-    if (colType === "number" || colType === "boolean" || colType === "date") {
-      return false;
-    }
-    
-    // Skip internal/non-user-editable columns by name pattern
-    if (colName.includes("Intrinsic.") ||
-        colName.includes("PropertyBool.") ||
-        colName.includes("PropertyText.Sync") ||
-        colName.includes("PropertyText.Codec") ||
-        colName.includes("PropertyText.Field") ||
-        colName.includes("Transcript") ||
-        colName.includes("Timecode") ||
-        colName.includes("Duration") ||
-        colName.includes("Usage") ||
-        colName.includes("Status") ||
-        colName.includes("Path") ||
-        colName.includes("FileName") ||
-        colName.includes("MediaType") ||
-        colName.includes("Frame Rate") ||
-        colName.includes("Media Start") ||
-        colName.includes("Media End")) {
-      return false;
-    }
-    
-    // Include if it's a PropertyText column or known text column
-    if (colName.includes("PropertyText.") ||
-        colName.includes("Comment") ||
-        colName.includes("Description") ||
-        colName.includes("tag") ||
-        colName.includes("Tag") ||
-        colName.includes("keywords") ||
-        colName.includes("Keywords") ||
-        colName.includes("dc:subject") ||
-        colName.includes("Label") ||
-        colName.includes("Scene") ||
-        colName.includes("Shot") ||
-        colName.includes("Take") ||
-        colName.includes("Note") ||
-        colName.includes("Log") ||
-        colName === "Name") {
-      return true;
-    }
-    
-    // Default: include if type is string or unknown
-    return colType === "string" || colType === "" || !colType;
-  });
-  
-  return textTypeColumns;
 }
 
-// Function to set 'toto' in the 'tag' field for all selected clips
+// Function to get selected clips and display their names and IDs
 async function addTagMasterMetadata() {
   try {
     console.log("=== TAG MASTER PLUGIN LOG ===");
     
-    log("Getting project info...", "green");
+    log("Getting selected clips...", "green");
     
     const project = await ppro.Project.getActiveProject();
     if (!project) {
@@ -203,28 +245,6 @@ async function addTagMasterMetadata() {
     }
     log(`Active sequence: ${sequence.name}`);
     console.log(`Active sequence: ${sequence.name}`);
-
-    // Get ALL metadata columns and filter text-type
-    log(`\n--- COLONNES DE METADONNEES DE TYPE TEXTE ---`, "green");
-    console.log(`\n--- COLONNES DE METADONNEES DE TYPE TEXTE ---`);
-    
-    const allMetadataColumns = await getAllMetadataColumns(project);
-    const textTypeColumns = filterTextTypeColumns(allMetadataColumns);
-    
-    if (textTypeColumns.length > 0) {
-      // Display text-type column names
-      for (let i = 0; i < textTypeColumns.length; i++) {
-        const col = textTypeColumns[i];
-        const colName = col.ColumnName || col.name || "Unknown";
-        log(`  ${i + 1}. ${colName}`, "blue");
-        console.log(`  ${i + 1}. ${colName}`);
-      }
-      log(`\nTotal: ${textTypeColumns.length} colonnes de type texte`, "blue");
-      console.log(`Total: ${textTypeColumns.length} colonnes de type texte`);
-    } else {
-      log("Aucune colonne de type texte trouvee", "orange");
-      console.log("Aucune colonne de type texte trouvee");
-    }
 
     // Get selected clips
     const selection = await sequence.getSelection();
@@ -278,7 +298,7 @@ async function addTagMasterMetadata() {
     log(`\nTotal: ${uniqueClips.length} clip(s) unique(s)`, "blue");
     console.log(`Total: ${uniqueClips.length} clip(s) unique(s)`);
     
-    // Set 'toto' in the 'tag' field for ALL selected clips
+    // Set 'toto' in the 'tag' field for ALL selected clips (original functionality)
     if (uniqueClips.length > 0) {
       log(`\n--- Setting 'tag' to 'toto' for all clips ---`, "green");
       console.log(`\n--- Setting 'tag' to 'toto' for all clips ---`);
@@ -305,8 +325,6 @@ async function addTagMasterMetadata() {
           // Set the 'tag' property using the correct namespace
           console.log("Setting tag property...");
           xmpProject.setProperty(PPRO_METADATA_URL, "tag", "toto");
-          
-          // Also try Column.PropertyText.Tag
           xmpProject.setProperty(PPRO_METADATA_URL, "Column.PropertyText.Tag", "toto");
           
           // Serialize to string
@@ -368,13 +386,19 @@ async function addTagMasterMetadata() {
 // Event listeners
 document.querySelector("#btnPopulate").addEventListener("click", populateProjectInfo);
 document.querySelector("#btnAddMetadata").addEventListener("click", addTagMasterMetadata);
+document.querySelector("#create-tag-btn").addEventListener("click", createNewMetadataColumn);
+document.querySelector("#apply-tag-btn").addEventListener("click", applyTagToSelectedClips);
 document.querySelector("#clear-btn").addEventListener("click", () => {
   document.getElementById("plugin-body").innerHTML = "";
 });
 
+// Log function to display messages in the plugin body.
 function log(msg, color) {
   const pluginBody = document.getElementById("plugin-body");
-  pluginBody.innerHTML += color ? `<span style='color:${color}'>${msg}</span><br />` : `${msg}<br />`;
+  pluginBody.innerHTML += color
+    ? `<span style='color:${color}'>${msg}</span><br />`
+    : `${msg}<br />`;
+  // Auto-scroll to bottom
   pluginBody.scrollTop = pluginBody.scrollHeight;
 }
 
@@ -390,5 +414,9 @@ function updateTheme(theme) {
   }
 }
 
-document.theme.onUpdated.addListener((theme) => { updateTheme(theme); });const currentTheme = document.theme.getCurrent();
+document.theme.onUpdated.addListener((theme) => {
+	updateTheme(theme);
+});
+
+const currentTheme = document.theme.getCurrent();
 updateTheme(currentTheme);
