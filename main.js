@@ -20,6 +20,58 @@ const { XMPMeta } = uxp.xmp;
 const PPRO_METADATA_URL = "http://ns.adobe.com/premierePrivateProjectMetaData/1.0/";
 const DUBLIN_CORE_URL = "http://purl.org/dc/elements/1.1/";
 
+// Columns that cannot be edited (from tag-sampling)
+const kColumnsCannotBeEdited = [
+  "ASC_SOP",
+  "ASC_SAT",
+  "Audio Duration",
+  "Audio In Point",
+  "Audio Info",
+  "Audio Usage",
+  "Audio Out Point",
+  "Captions",
+  "Capture Settings",
+  "Content Analysis",
+  "Field Order",
+  "File Path",
+  "File Name",
+  "Frame Rate",
+  "Label",
+  "Lut",
+  "Lut1",
+  "Lut2",
+  "Media Start",
+  "Media Duration",
+  "Media End",
+  "Media File Name",
+  "Media File Path",
+  "Media Type",
+  "Original Video File Name",
+  "Original Audio File Name",
+  "Offline Properties",
+  "Project Locked",
+  "Proxy",
+  "Proxy File Path",
+  "Proxy Media File Name",
+  "Proxy Media File Path",
+  "Selected",
+  "Sound Timecode",
+  "Status",
+  "Subclip Start",
+  "Subclip End",
+  "Subclip Duration",
+  "Sync status",
+  "Sync Offset",
+  "Video Codec",
+  "Video In Point",
+  "Video Out Point",
+  "Video Duration",
+  "Video Info",
+  "Video Usage",
+  "Transcription Status",
+  "Content Credentials",
+];
+
 // Call the Premiere Pro API to populate Application Info area.
 async function populateProjectInfo() {
   const project = await ppro.Project.getActiveProject();
@@ -36,69 +88,68 @@ async function populateProjectInfo() {
   }
 }
 
-// Function to get text-type metadata columns
-async function getTextMetadataColumns(project) {
-  try {
-    const projectRootItem = await project.getRootItem();
-    const projectItems = await projectRootItem.getItems();
-    
-    if (projectItems && projectItems.length > 0) {
-      // Find first ClipProjectItem
-      let firstClip = null;
-      for (const item of projectItems) {
-        if (ppro.ClipProjectItem.cast(item)) {
-          firstClip = item;
-          break;
-        }
+// Function to find viable metadata columns (from tag-sampling approach)
+async function findViableMetadataColumns(projectItem) {
+  if (ppro.ClipProjectItem.cast(projectItem)) {
+    try {
+      // get metadata column and omit column that does not apply for edits
+      const metadata = await ppro.Metadata.getProjectColumnsMetadata(projectItem);
+      if (metadata) {
+        const metadataColumns = JSON.parse(metadata);
+        const validColumns = metadataColumns.filter(
+          (item) => !kColumnsCannotBeEdited.includes(item.ColumnName)
+        );
+        return validColumns;
       }
-      
-      if (firstClip) {
-        const firstClipMetadata = await ppro.Metadata.getProjectMetadata(firstClip);
-        
-        if (firstClipMetadata) {
-          const xmpProject = new XMPMeta(firstClipMetadata);
-          
-          // Get all properties from both namespaces
-          const pproProperties = xmpProject.getAllProperties(PPRO_METADATA_URL) || [];
-          const dcProperties = xmpProject.getAllProperties(DUBLIN_CORE_URL) || [];
-          
-          // Combine and filter text-type properties
-          const allProperties = [...pproProperties, ...dcProperties];
-          const textColumns = [];
-          
-          for (const prop of allProperties) {
-            const propName = prop.path ? prop.path.replace(PPRO_METADATA_URL, "").replace(DUBLIN_CORE_URL, "dc:") : prop.name;
-            const propValue = prop.value;
-            
-            // Check if it's a text-type property (string, not number, boolean, etc.)
-            if (typeof propValue === 'string' || (propValue && propValue.toString)) {
-              // Filter out internal/non-user-editable columns
-              if (!propName.includes("Intrinsic.") && 
-                  !propName.includes("PropertyBool.") &&
-                  !propName.includes("PropertyText.Sync") &&
-                  !propName.includes("PropertyText.Codec") &&
-                  !propName.includes("PropertyText.Field") &&
-                  !propName.includes("Transcript") &&
-                  !propName.includes("Timecode") &&
-                  !propName.includes("Duration") &&
-                  !propName.includes("Usage") &&
-                  !propName.includes("Status") &&
-                  !propName.includes("Path") &&
-                  !propName.includes("FileName") &&
-                  !propName.includes("MediaType")) {
-                textColumns.push(propName);
-              }
-            }
+    } catch (error) {
+      console.log("Error in findViableMetadataColumns:", error.message);
+    }
+  }
+  
+  // If this is bin, recursively find if we can get columns from projectItem inside
+  try {
+    const folderItem = await ppro.FolderItem.cast(projectItem);
+    if (folderItem) {
+      const items = await folderItem.getItems();
+      if (items.length > 0) {
+        for (const item of items) {
+          const result = await findViableMetadataColumns(item);
+          if (result) {
+            return result;
           }
-          
-          return textColumns;
         }
       }
     }
   } catch (error) {
-    console.log("Error getting text columns:", error.message);
+    console.log("Error checking folder items:", error.message);
   }
-  return [];
+  
+  return null;
+}
+
+// Function to get all metadata columns (like tag-sampling)
+async function getMetdataColumns(project) {
+  try {
+    const projectRootItem = await project.getRootItem();
+    const projectItems = await projectRootItem.getItems();
+    
+    if (projectItems.length == 0) {
+      log("Add one project item to load available metadata columns", "orange");
+      return null;
+    }
+
+    let metadataColumns;
+    for (const projectItem of projectItems) {
+      metadataColumns = await findViableMetadataColumns(projectItem);
+      if (metadataColumns != null) {
+        return metadataColumns;
+      }
+    }
+    return metadataColumns;
+  } catch (error) {
+    console.log("Error in getMetdataColumns:", error.message);
+    return null;
+  }
 }
 
 // Function to set 'toto' in the 'tag' field for all selected clips
@@ -127,6 +178,26 @@ async function addTagMasterMetadata() {
     }
     log(`Active sequence: ${sequence.name}`);
     console.log(`Active sequence: ${sequence.name}`);
+
+    // Get ALL metadata columns (like tag-sampling)
+    log(`\n--- PROJECT METADATA COLUMNS ---`, "green");
+    console.log(`\n--- PROJECT METADATA COLUMNS ---`);
+    
+    const metadataColumns = await getMetdataColumns(project);
+    
+    if (metadataColumns && metadataColumns.length > 0) {
+      for (let i = 0; i < metadataColumns.length; i++) {
+        const col = metadataColumns[i];
+        const colInfo = `  ${i + 1}. ${col.ColumnName} (ID: ${col.ColumnID})`;
+        log(colInfo, "blue");
+        console.log(colInfo);
+      }
+      log(`Total: ${metadataColumns.length} editable columns`, "blue");
+      console.log(`Total: ${metadataColumns.length} editable columns`);
+    } else {
+      log("No metadata columns found", "orange");
+      console.log("No metadata columns found");
+    }
 
     // Get selected clips
     const selection = await sequence.getSelection();
@@ -251,24 +322,6 @@ async function addTagMasterMetadata() {
       
       log(`\n✅ ALL DONE! Check 'tag' column in Project Metadata panel for all ${uniqueClips.length} clips!`, "green");
       console.log(`\n✅ ALL DONE! Check 'tag' column in Project Metadata panel for all ${uniqueClips.length} clips!`);
-    }
-    
-    // NEW: Display text-type metadata columns at the end
-    log(`\n--- TEXT-TYPE METADATA COLUMNS ---`, "green");
-    console.log(`\n--- TEXT-TYPE METADATA COLUMNS ---`);
-    
-    const textColumns = await getTextMetadataColumns(project);
-    
-    if (textColumns.length > 0) {
-      for (let i = 0; i < textColumns.length; i++) {
-        log(`  ${i + 1}. ${textColumns[i]}`, "blue");
-        console.log(`  ${i + 1}. ${textColumns[i]}`);
-      }
-      log(`\nTotal: ${textColumns.length} text-type columns available`, "blue");
-      console.log(`Total: ${textColumns.length} text-type columns available`);
-    } else {
-      log("No text-type metadata columns found", "orange");
-      console.log("No text-type metadata columns found");
     }
     
     console.log("\n=== END TAG MASTER PLUGIN LOG ===\n");
