@@ -20,58 +20,6 @@ const { XMPMeta } = uxp.xmp;
 const PPRO_METADATA_URL = "http://ns.adobe.com/premierePrivateProjectMetaData/1.0/";
 const DUBLIN_CORE_URL = "http://purl.org/dc/elements/1.1/";
 
-// Columns that cannot be edited (from tag-sampling)
-const kColumnsCannotBeEdited = [
-  "ASC_SOP",
-  "ASC_SAT",
-  "Audio Duration",
-  "Audio In Point",
-  "Audio Info",
-  "Audio Usage",
-  "Audio Out Point",
-  "Captions",
-  "Capture Settings",
-  "Content Analysis",
-  "Field Order",
-  "File Path",
-  "File Name",
-  "Frame Rate",
-  "Label",
-  "Lut",
-  "Lut1",
-  "Lut2",
-  "Media Start",
-  "Media Duration",
-  "Media End",
-  "Media File Name",
-  "Media File Path",
-  "Media Type",
-  "Original Video File Name",
-  "Original Audio File Name",
-  "Offline Properties",
-  "Project Locked",
-  "Proxy",
-  "Proxy File Path",
-  "Proxy Media File Name",
-  "Proxy Media File Path",
-  "Selected",
-  "Sound Timecode",
-  "Status",
-  "Subclip Start",
-  "Subclip End",
-  "Subclip Duration",
-  "Sync status",
-  "Sync Offset",
-  "Video Codec",
-  "Video In Point",
-  "Video Out Point",
-  "Video Duration",
-  "Video Info",
-  "Video Usage",
-  "Transcription Status",
-  "Content Credentials",
-];
-
 // Call the Premiere Pro API to populate Application Info area.
 async function populateProjectInfo() {
   const project = await ppro.Project.getActiveProject();
@@ -88,114 +36,103 @@ async function populateProjectInfo() {
   }
 }
 
-// Function to find viable metadata columns (from tag-sampling approach)
-async function findViableMetadataColumns(projectItem) {
-  if (ppro.ClipProjectItem.cast(projectItem)) {
-    try {
-      // get metadata column and omit column that does not apply for edits
-      const metadata = await ppro.Metadata.getProjectColumnsMetadata(projectItem);
-      if (metadata) {
-        const metadataColumns = JSON.parse(metadata);
-        const validColumns = metadataColumns.filter(
-          (item) => !kColumnsCannotBeEdited.includes(item.ColumnName)
-        );
-        return validColumns;
-      }
-    } catch (error) {
-      console.log("Error in findViableMetadataColumns:", error.message);
-    }
-  }
-  
-  // If this is bin, recursively find if we can get columns from projectItem inside
+// Function to get all metadata properties from a clip
+async function getAllMetadataProperties(projectItem) {
   try {
-    const folderItem = await ppro.FolderItem.cast(projectItem);
-    if (folderItem) {
-      const items = await folderItem.getItems();
-      if (items.length > 0) {
-        for (const item of items) {
-          const result = await findViableMetadataColumns(item);
-          if (result) {
-            return result;
-          }
-        }
-      }
+    const metadata = await ppro.Metadata.getProjectMetadata(projectItem);
+    if (!metadata) {
+      return [];
     }
+    
+    const xmpProject = new XMPMeta(metadata);
+    
+    // Get all properties from both namespaces
+    const pproProperties = xmpProject.getAllProperties(PPRO_METADATA_URL) || [];
+    const dcProperties = xmpProject.getAllProperties(DUBLIN_CORE_URL) || [];
+    
+    // Combine properties
+    const allProperties = [...pproProperties, ...dcProperties];
+    
+    // Extract property names
+    const propertyNames = allProperties.map(prop => {
+      let name = prop.path || prop.name || "";
+      // Clean up the name by removing namespace
+      name = name.replace(PPRO_METADATA_URL, "")
+                 .replace(DUBLIN_CORE_URL, "dc:");
+      return name;
+    });
+    
+    return propertyNames;
   } catch (error) {
-    console.log("Error checking folder items:", error.message);
+    console.log("Error getting metadata properties:", error.message);
+    return [];
   }
-  
-  return null;
 }
 
-// Function to get all metadata columns (like tag-sampling)
-async function getMetdataColumns(project) {
+// Function to find text-type metadata columns by checking actual property types
+async function findTextMetadataColumns(project) {
   try {
     const projectRootItem = await project.getRootItem();
     const projectItems = await projectRootItem.getItems();
     
-    if (projectItems.length == 0) {
-      log("Add one project item to load available metadata columns", "orange");
-      return null;
+    if (projectItems.length === 0) {
+      return [];
     }
-
-    let metadataColumns;
-    for (const projectItem of projectItems) {
-      metadataColumns = await findViableMetadataColumns(projectItem);
-      if (metadataColumns != null) {
-        return metadataColumns;
+    
+    // Find first ClipProjectItem
+    let firstClip = null;
+    for (const item of projectItems) {
+      if (ppro.ClipProjectItem.cast(item)) {
+        firstClip = item;
+        break;
       }
     }
-    return metadataColumns;
+    
+    if (!firstClip) {
+      return [];
+    }
+    
+    // Get all metadata properties from the first clip
+    const allProperties = await getAllMetadataProperties(firstClip);
+    
+    // Known text-type properties (from Premiere Pro metadata schema)
+    const knownTextProperties = [
+      "tag",
+      "Tag",
+      "Column.PropertyText.Tag",
+      "keywords",
+      "Keywords",
+      "dc:subject",
+      "Column.PropertyText.Label",
+      "Column.PropertyText.Status",
+      "Column.PropertyText.Comment",
+      "Column.PropertyText.Description",
+      "Column.PropertyText.Scene",
+      "Column.PropertyText.Shot",
+      "Column.PropertyText.Take",
+      "Column.PropertyText.Note",
+      "Column.PropertyText.Log",
+      "Name",
+      "Column.Intrinsic.Name"
+    ];
+    
+    // Filter to only include known text properties that exist
+    const textColumns = allProperties.filter(prop => 
+      knownTextProperties.includes(prop)
+    );
+    
+    // Also include any property that contains "PropertyText" or "Text"
+    const additionalTextColumns = allProperties.filter(prop => 
+      (prop.includes("PropertyText") || prop.includes("Text")) && 
+      !textColumns.includes(prop)
+    );
+    
+    return [...textColumns, ...additionalTextColumns];
+    
   } catch (error) {
-    console.log("Error in getMetdataColumns:", error.message);
-    return null;
-  }
-}
-
-// Function to get only text-type metadata columns
-function getTextTypeColumns(metadataColumns) {
-  if (!metadataColumns || metadataColumns.length === 0) {
+    console.log("Error finding text metadata columns:", error.message);
     return [];
   }
-  
-  // Filter columns that are text type
-  // Based on column name patterns and known text columns
-  const textTypeColumns = [];
-  
-  for (const col of metadataColumns) {
-    const colName = col.ColumnName || col.name || "";
-    
-    // Skip non-editable columns (already filtered by findViableMetadataColumns)
-    // But we need to filter by type
-    
-    // Known text-type column patterns
-    const isTextType = 
-      colName.includes("PropertyText.") ||
-      colName.includes("Comment") ||
-      colName.includes("Description") ||
-      colName.includes("Author") ||
-      colName.includes("Copyright") ||
-      colName.includes("tag") ||
-      colName.includes("Tag") ||
-      colName.includes("keywords") ||
-      colName.includes("Keywords") ||
-      colName.includes("dc:subject") ||
-      colName.includes("Label") ||
-      colName.includes("Status") ||
-      colName.includes("Scene") ||
-      colName.includes("Shot") ||
-      colName.includes("Take") ||
-      colName.includes("Note") ||
-      colName.includes("Log") ||
-      // Check if it's NOT in the non-editable list (already filtered, but just in case)
-      !kColumnsCannotBeEdited.includes(colName);
-    
-    if (isTextType) {
-      textTypeColumns.push(col);
-    }
-  }
-  
-  return textTypeColumns;
 }
 
 // Function to set 'toto' in the 'tag' field for all selected clips
@@ -225,23 +162,20 @@ async function addTagMasterMetadata() {
     log(`Active sequence: ${sequence.name}`);
     console.log(`Active sequence: ${sequence.name}`);
 
-    // Get ALL metadata columns (like tag-sampling)
+    // Get text-type metadata columns
     log(`\n--- COLONNES DE METADONNEES DE TYPE TEXTE ---`, "green");
     console.log(`\n--- COLONNES DE METADONNEES DE TYPE TEXTE ---`);
     
-    const allMetadataColumns = await getMetdataColumns(project);
-    const textTypeColumns = getTextTypeColumns(allMetadataColumns);
+    const textColumns = await findTextMetadataColumns(project);
     
-    if (textTypeColumns.length > 0) {
-      // Display only text-type column names
-      for (let i = 0; i < textTypeColumns.length; i++) {
-        const col = textTypeColumns[i];
-        const colName = col.ColumnName || col.name || "Unknown";
-        log(`  ${i + 1}. ${colName}`, "blue");
-        console.log(`  ${i + 1}. ${colName}`);
+    if (textColumns.length > 0) {
+      // Display text-type column names
+      for (let i = 0; i < textColumns.length; i++) {
+        log(`  ${i + 1}. ${textColumns[i]}`, "blue");
+        console.log(`  ${i + 1}. ${textColumns[i]}`);
       }
-      log(`\nTotal: ${textTypeColumns.length} colonnes de type texte`, "blue");
-      console.log(`Total: ${textTypeColumns.length} colonnes de type texte`);
+      log(`\nTotal: ${textColumns.length} colonnes de type texte`, "blue");
+      console.log(`Total: ${textColumns.length} colonnes de type texte`);
     } else {
       log("Aucune colonne de type texte trouvee", "orange");
       console.log("Aucune colonne de type texte trouvee");
