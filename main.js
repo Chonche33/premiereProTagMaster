@@ -180,23 +180,24 @@ async function addTagMasterMetadata() {
     console.log(`Active sequence: ${sequence.name}`);
 
     // Get ALL metadata columns (like tag-sampling)
-    log(`\n--- PROJECT METADATA COLUMNS ---`, "green");
-    console.log(`\n--- PROJECT METADATA COLUMNS ---`);
+    log(`\n--- COLONNES DE METADONNEES DISPONIBLES ---`, "green");
+    console.log(`\n--- COLONNES DE METADONNEES DISPONIBLES ---`);
     
     const metadataColumns = await getMetdataColumns(project);
     
     if (metadataColumns && metadataColumns.length > 0) {
+      // Display column names only
       for (let i = 0; i < metadataColumns.length; i++) {
         const col = metadataColumns[i];
-        const colInfo = `  ${i + 1}. ${col.ColumnName} (ID: ${col.ColumnID})`;
-        log(colInfo, "blue");
-        console.log(colInfo);
+        const colName = col.ColumnName || col.name || "Unknown";
+        log(`  ${i + 1}. ${colName}`, "blue");
+        console.log(`  ${i + 1}. ${colName}`);
       }
-      log(`Total: ${metadataColumns.length} editable columns`, "blue");
-      console.log(`Total: ${metadataColumns.length} editable columns`);
+      log(`\nTotal: ${metadataColumns.length} colonnes de metadonnees editables`, "blue");
+      console.log(`Total: ${metadataColumns.length} colonnes de metadonnees editables`);
     } else {
-      log("No metadata columns found", "orange");
-      console.log("No metadata columns found");
+      log("Aucune colonne de metadonnees trouvee", "orange");
+      console.log("Aucune colonne de metadonnees trouvee");
     }
 
     // Get selected clips
@@ -248,7 +249,7 @@ async function addTagMasterMetadata() {
       console.log(logMsg);
     }
     
-    log(`\nTotal: ${uniqueClips.length} clip(s) unique(s)`);
+    log(`\nTotal: ${uniqueClips.length} clip(s) unique(s)`, "blue");
     console.log(`Total: ${uniqueClips.length} clip(s) unique(s)`);
     
     // Set 'toto' in the 'tag' field for ALL selected clips
